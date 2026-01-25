@@ -18,6 +18,37 @@ export type SearchRowResult = {
   source: SearchSource;
 };
 
+export type RecencyConfig = {
+  enabled: boolean;
+  lambda: number;
+  windowDays: number;
+};
+
+/**
+ * Calculate recency penalty for a document based on its age.
+ * Formula: lambda * min(1, daysSince(updatedAt) / windowDays)
+ *
+ * @param updatedAt - Unix timestamp (ms) of when the document was updated
+ * @param now - Current Unix timestamp (ms)
+ * @param lambda - Maximum penalty (0-1)
+ * @param windowDays - Window in days for full penalty
+ * @returns Penalty to subtract from score (0 to lambda)
+ */
+export function calculateRecencyPenalty(
+  updatedAt: number | null | undefined,
+  now: number,
+  lambda: number,
+  windowDays: number,
+): number {
+  // No penalty if updatedAt is null/undefined or in the future
+  if (updatedAt == null || updatedAt > now) return 0;
+
+  const msPerDay = 24 * 60 * 60 * 1000;
+  const daysSince = (now - updatedAt) / msPerDay;
+  const ratio = Math.min(1, daysSince / windowDays);
+  return lambda * ratio;
+}
+
 export async function searchVector(params: {
   db: DatabaseSync;
   vectorTable: string;
@@ -28,13 +59,18 @@ export async function searchVector(params: {
   ensureVectorReady: (dimensions: number) => Promise<boolean>;
   sourceFilterVec: { sql: string; params: SearchSource[] };
   sourceFilterChunks: { sql: string; params: SearchSource[] };
+  recency?: RecencyConfig;
 }): Promise<SearchRowResult[]> {
   if (params.queryVec.length === 0 || params.limit <= 0) return [];
+
+  const now = Date.now();
+  const recency = params.recency;
+
   if (await params.ensureVectorReady(params.queryVec.length)) {
     const rows = params.db
       .prepare(
         `SELECT c.id, c.path, c.start_line, c.end_line, c.text,\n` +
-          `       c.source,\n` +
+          `       c.source, c.updated_at,\n` +
           `       vec_distance_cosine(v.embedding, ?) AS dist\n` +
           `  FROM ${params.vectorTable} v\n` +
           `  JOIN chunks c ON c.id = v.id\n` +
@@ -55,16 +91,37 @@ export async function searchVector(params: {
       text: string;
       source: SearchSource;
       dist: number;
+      updated_at: number | null;
     }>;
-    return rows.map((row) => ({
-      id: row.id,
-      path: row.path,
-      startLine: row.start_line,
-      endLine: row.end_line,
-      score: 1 - row.dist,
-      snippet: truncateUtf16Safe(row.text, params.snippetMaxChars),
-      source: row.source,
-    }));
+
+    const results = rows.map((row) => {
+      let score = 1 - row.dist;
+      if (recency?.enabled) {
+        const penalty = calculateRecencyPenalty(
+          row.updated_at,
+          now,
+          recency.lambda,
+          recency.windowDays,
+        );
+        score = Math.max(0, score - penalty);
+      }
+      return {
+        id: row.id,
+        path: row.path,
+        startLine: row.start_line,
+        endLine: row.end_line,
+        score,
+        snippet: truncateUtf16Safe(row.text, params.snippetMaxChars),
+        source: row.source,
+      };
+    });
+
+    // Re-sort by score after applying recency penalty
+    if (recency?.enabled) {
+      results.sort((a, b) => b.score - a.score);
+    }
+
+    return results;
   }
 
   const candidates = listChunks({
@@ -73,10 +130,19 @@ export async function searchVector(params: {
     sourceFilter: params.sourceFilterChunks,
   });
   const scored = candidates
-    .map((chunk) => ({
-      chunk,
-      score: cosineSimilarity(params.queryVec, chunk.embedding),
-    }))
+    .map((chunk) => {
+      let score = cosineSimilarity(params.queryVec, chunk.embedding);
+      if (recency?.enabled) {
+        const penalty = calculateRecencyPenalty(
+          chunk.updatedAt,
+          now,
+          recency.lambda,
+          recency.windowDays,
+        );
+        score = Math.max(0, score - penalty);
+      }
+      return { chunk, score };
+    })
     .filter((entry) => Number.isFinite(entry.score));
   return scored
     .sort((a, b) => b.score - a.score)
@@ -104,10 +170,11 @@ export function listChunks(params: {
   text: string;
   embedding: number[];
   source: SearchSource;
+  updatedAt: number | null;
 }> {
   const rows = params.db
     .prepare(
-      `SELECT id, path, start_line, end_line, text, embedding, source\n` +
+      `SELECT id, path, start_line, end_line, text, embedding, source, updated_at\n` +
         `  FROM chunks\n` +
         ` WHERE model = ?${params.sourceFilter.sql}`,
     )
@@ -119,6 +186,7 @@ export function listChunks(params: {
     text: string;
     embedding: string;
     source: SearchSource;
+    updated_at: number | null;
   }>;
 
   return rows.map((row) => ({
@@ -129,6 +197,7 @@ export function listChunks(params: {
     text: row.text,
     embedding: parseEmbedding(row.embedding),
     source: row.source,
+    updatedAt: row.updated_at,
   }));
 }
 

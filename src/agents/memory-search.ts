@@ -63,6 +63,11 @@ export type ResolvedMemorySearchConfig = {
       textWeight: number;
       candidateMultiplier: number;
     };
+    recency: {
+      enabled: boolean;
+      lambda: number;
+      windowDays: number;
+    };
   };
   cache: {
     enabled: boolean;
@@ -83,6 +88,9 @@ const DEFAULT_HYBRID_ENABLED = true;
 const DEFAULT_HYBRID_VECTOR_WEIGHT = 0.7;
 const DEFAULT_HYBRID_TEXT_WEIGHT = 0.3;
 const DEFAULT_HYBRID_CANDIDATE_MULTIPLIER = 4;
+const DEFAULT_RECENCY_ENABLED = false;
+const DEFAULT_RECENCY_LAMBDA = 0.08;
+const DEFAULT_RECENCY_WINDOW_DAYS = 14;
 const DEFAULT_CACHE_ENABLED = true;
 const DEFAULT_SOURCES: Array<"memory" | "sessions"> = ["memory"];
 
@@ -211,6 +219,20 @@ function mergeConfig(
       defaults?.query?.hybrid?.candidateMultiplier ??
       DEFAULT_HYBRID_CANDIDATE_MULTIPLIER,
   };
+  const recency = {
+    enabled:
+      overrides?.query?.recency?.enabled ??
+      defaults?.query?.recency?.enabled ??
+      DEFAULT_RECENCY_ENABLED,
+    lambda:
+      overrides?.query?.recency?.lambda ??
+      defaults?.query?.recency?.lambda ??
+      DEFAULT_RECENCY_LAMBDA,
+    windowDays:
+      overrides?.query?.recency?.windowDays ??
+      defaults?.query?.recency?.windowDays ??
+      DEFAULT_RECENCY_WINDOW_DAYS,
+  };
   const cache = {
     enabled: overrides?.cache?.enabled ?? defaults?.cache?.enabled ?? DEFAULT_CACHE_ENABLED,
     maxEntries: overrides?.cache?.maxEntries ?? defaults?.cache?.maxEntries,
@@ -224,6 +246,8 @@ function mergeConfig(
   const normalizedVectorWeight = sum > 0 ? vectorWeight / sum : DEFAULT_HYBRID_VECTOR_WEIGHT;
   const normalizedTextWeight = sum > 0 ? textWeight / sum : DEFAULT_HYBRID_TEXT_WEIGHT;
   const candidateMultiplier = clampInt(hybrid.candidateMultiplier, 1, 20);
+  const recencyLambda = clampNumber(recency.lambda, 0, 1);
+  const recencyWindowDays = clampInt(recency.windowDays, 1, 365);
   const deltaBytes = clampInt(sync.sessions.deltaBytes, 0, Number.MAX_SAFE_INTEGER);
   const deltaMessages = clampInt(sync.sessions.deltaMessages, 0, Number.MAX_SAFE_INTEGER);
   return {
@@ -254,6 +278,11 @@ function mergeConfig(
         vectorWeight: normalizedVectorWeight,
         textWeight: normalizedTextWeight,
         candidateMultiplier,
+      },
+      recency: {
+        enabled: Boolean(recency.enabled),
+        lambda: recencyLambda,
+        windowDays: recencyWindowDays,
       },
     },
     cache: {

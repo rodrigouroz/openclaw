@@ -102,30 +102,6 @@ export type MediaUnderstandingConfig = {
   models?: MediaUnderstandingModelConfig[];
 };
 
-export type LinkModelConfig = {
-  /** Use a CLI command for link processing. */
-  type?: "cli";
-  /** CLI binary (required when type=cli). */
-  command: string;
-  /** CLI args (template-enabled). */
-  args?: string[];
-  /** Optional timeout override (seconds) for this model entry. */
-  timeoutSeconds?: number;
-};
-
-export type LinkToolsConfig = {
-  /** Enable link understanding when models are configured. */
-  enabled?: boolean;
-  /** Optional scope gating for understanding. */
-  scope?: MediaUnderstandingScopeConfig;
-  /** Max number of links to process per message. */
-  maxLinks?: number;
-  /** Default timeout (seconds). */
-  timeoutSeconds?: number;
-  /** Ordered model list (fallbacks in order). */
-  models?: LinkModelConfig[];
-};
-
 export type MediaToolsConfig = {
   /** Shared model list applied across image/audio/video. */
   models?: MediaUnderstandingModelConfig[];
@@ -298,6 +274,14 @@ export type MemorySearchConfig = {
       /** Multiplier for candidate pool size (default: 4). */
       candidateMultiplier?: number;
     };
+    recency?: {
+      /** Enable recency boost (default: false). */
+      enabled?: boolean;
+      /** Maximum penalty for old documents (default: 0.08). */
+      lambda?: number;
+      /** Window in days for full penalty (default: 14). */
+      windowDays?: number;
+    };
   };
   /** Index cache behavior. */
   cache?: {
@@ -371,7 +355,6 @@ export type ToolsConfig = {
     };
   };
   media?: MediaToolsConfig;
-  links?: LinkToolsConfig;
   /** Message tool configuration. */
   message?: {
     /**

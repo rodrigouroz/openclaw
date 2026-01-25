@@ -320,6 +320,7 @@ export class MemoryIndexManager {
       ensureVectorReady: async (dimensions) => await this.ensureVectorReady(dimensions),
       sourceFilterVec: this.buildSourceFilter("c"),
       sourceFilterChunks: this.buildSourceFilter(),
+      recency: this.settings.query.recency,
     });
     return results.map((entry) => entry as MemorySearchResult & { id: string });
   }
