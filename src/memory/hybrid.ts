@@ -36,11 +36,55 @@ export function bm25RankToScore(rank: number): number {
   return 1 / (1 + normalized);
 }
 
+/**
+ * Calculates the dynamic relevance threshold based on the top result score.
+ *
+ * The threshold adapts to query confidence:
+ * - High confidence (topScore >= 0.7): threshold = topScore * 0.5
+ * - Medium confidence (topScore >= 0.3): threshold = topScore * 0.6
+ * - Low confidence (topScore < 0.3): threshold = 0.15 (absolute floor)
+ *
+ * @param topScore - The score of the highest-ranked result
+ * @returns The calculated threshold value
+ */
+export function calculateDynamicThreshold(topScore: number): number {
+  if (topScore >= 0.7) {
+    return topScore * 0.5;
+  }
+  if (topScore >= 0.3) {
+    return topScore * 0.6;
+  }
+  return 0.15;
+}
+
+/**
+ * Applies dynamic threshold filtering to search results.
+ * Filters out results below the calculated threshold based on the top score.
+ *
+ * @param results - Sorted array of search results (highest score first)
+ * @param dynamicThreshold - Whether to apply dynamic threshold filtering
+ * @returns Filtered results array
+ */
+export function applyDynamicThreshold<T extends { score: number }>(
+  results: T[],
+  dynamicThreshold: boolean,
+): T[] {
+  if (!dynamicThreshold || results.length === 0) {
+    return results;
+  }
+
+  const topScore = results[0].score;
+  const threshold = calculateDynamicThreshold(topScore);
+
+  return results.filter((r) => r.score >= threshold);
+}
+
 export function mergeHybridResults(params: {
   vector: HybridVectorResult[];
   keyword: HybridKeywordResult[];
   vectorWeight: number;
   textWeight: number;
+  dynamicThreshold?: boolean;
 }): Array<{
   path: string;
   startLine: number;
@@ -107,5 +151,8 @@ export function mergeHybridResults(params: {
     };
   });
 
-  return merged.sort((a, b) => b.score - a.score);
+  const sorted = merged.sort((a, b) => b.score - a.score);
+
+  // Apply dynamic threshold filtering
+  return applyDynamicThreshold(sorted, params.dynamicThreshold ?? false);
 }
