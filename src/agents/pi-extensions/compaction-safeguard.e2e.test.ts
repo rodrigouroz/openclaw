@@ -9,6 +9,11 @@ import { __testing } from "./compaction-safeguard.js";
 const {
   collectToolFailures,
   formatToolFailuresSection,
+  splitPreservedRecentTurns,
+  formatPreservedTurnsSection,
+  buildCompactionStructureInstructions,
+  extractOpaqueIdentifiers,
+  auditSummaryQuality,
   computeAdaptiveChunkRatio,
   isOversizedForSummary,
   BASE_CHUNK_RATIO,
@@ -247,5 +252,79 @@ describe("compaction-safeguard runtime registry", () => {
     setCompactionSafeguardRuntime(sm2, { maxHistoryShare: 0.8 });
     expect(getCompactionSafeguardRuntime(sm1)).toEqual({ maxHistoryShare: 0.3 });
     expect(getCompactionSafeguardRuntime(sm2)).toEqual({ maxHistoryShare: 0.8 });
+  });
+});
+
+describe("compaction-safeguard summary quality helpers", () => {
+  it("preserves the most recent user/assistant messages", () => {
+    const messages: AgentMessage[] = [
+      { role: "user", content: "older ask", timestamp: 1 },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "older answer" }],
+        timestamp: 2,
+      } as unknown as AgentMessage,
+      { role: "user", content: "recent ask", timestamp: 3 },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "recent answer" }],
+        timestamp: 4,
+      } as unknown as AgentMessage,
+    ];
+
+    const split = splitPreservedRecentTurns({
+      messages,
+      recentTurnsPreserve: 1,
+    });
+
+    expect(split.preservedMessages).toHaveLength(2);
+    expect(split.summarizableMessages).toHaveLength(2);
+    expect(formatPreservedTurnsSection(split.preservedMessages)).toContain(
+      "## Recent turns preserved verbatim",
+    );
+  });
+
+  it("builds structured instructions with required sections", () => {
+    const instructions = buildCompactionStructureInstructions("Keep security caveats.");
+    expect(instructions).toContain("## Decisions");
+    expect(instructions).toContain("## Exact identifiers");
+    expect(instructions).toContain("Keep security caveats.");
+  });
+
+  it("extracts opaque identifiers and audits summary quality", () => {
+    const identifiers = extractOpaqueIdentifiers(
+      "Track id a1b2c3d4e5f6 and URL https://example.com/a and /tmp/x.log plus port host.local:18789",
+    );
+    expect(identifiers.length).toBeGreaterThan(0);
+
+    const summary = [
+      "## Decisions",
+      "Keep current flow.",
+      "## Open TODOs",
+      "None.",
+      "## Constraints/Rules",
+      "Preserve identifiers.",
+      "## Pending user asks",
+      "Explain post-compaction behavior.",
+      "## Exact identifiers",
+      identifiers.join(", "),
+    ].join("\n");
+
+    const quality = auditSummaryQuality({
+      summary,
+      identifiers,
+      latestAsk: "Explain post-compaction behavior for memory indexing",
+    });
+    expect(quality.ok).toBe(true);
+  });
+
+  it("fails quality audit when required sections are missing", () => {
+    const quality = auditSummaryQuality({
+      summary: "Short summary without structure",
+      identifiers: ["abc12345"],
+      latestAsk: "Need a status update",
+    });
+    expect(quality.ok).toBe(false);
+    expect(quality.reasons.length).toBeGreaterThan(0);
   });
 });
