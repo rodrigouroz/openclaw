@@ -1,5 +1,7 @@
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import { describe, expect, it } from "vitest";
+import type { OpenClawConfig } from "../../config/config.js";
+import { buildEmbeddedExtensionPaths } from "../pi-embedded-runner/extensions.js";
 import {
   getCompactionSafeguardRuntime,
   setCompactionSafeguardRuntime,
@@ -14,6 +16,8 @@ const {
   buildCompactionStructureInstructions,
   extractOpaqueIdentifiers,
   auditSummaryQuality,
+  resolveRecentTurnsPreserve,
+  resolveQualityGuardMaxRetries,
   computeAdaptiveChunkRatio,
   isOversizedForSummary,
   BASE_CHUNK_RATIO,
@@ -253,6 +257,39 @@ describe("compaction-safeguard runtime registry", () => {
     expect(getCompactionSafeguardRuntime(sm1)).toEqual({ maxHistoryShare: 0.3 });
     expect(getCompactionSafeguardRuntime(sm2)).toEqual({ maxHistoryShare: 0.8 });
   });
+
+  it("wires quality guard retries from config and clamps safeguard runtime usage", () => {
+    const sessionManager = {} as unknown as Parameters<
+      typeof buildEmbeddedExtensionPaths
+    >[0]["sessionManager"];
+    const cfg = {
+      agents: {
+        defaults: {
+          compaction: {
+            mode: "safeguard",
+            recentTurnsPreserve: 99,
+            qualityGuard: { maxRetries: 99 },
+          },
+        },
+      },
+    } as OpenClawConfig;
+
+    buildEmbeddedExtensionPaths({
+      cfg,
+      sessionManager,
+      provider: "anthropic",
+      modelId: "claude-3-opus",
+      model: {
+        contextWindow: 200_000,
+      } as Parameters<typeof buildEmbeddedExtensionPaths>[0]["model"],
+    });
+
+    const runtime = getCompactionSafeguardRuntime(sessionManager);
+    expect(runtime?.qualityGuardMaxRetries).toBe(99);
+    expect(runtime?.recentTurnsPreserve).toBe(99);
+    expect(resolveQualityGuardMaxRetries(runtime?.qualityGuardMaxRetries)).toBe(3);
+    expect(resolveRecentTurnsPreserve(runtime?.recentTurnsPreserve)).toBe(12);
+  });
 });
 
 describe("compaction-safeguard summary quality helpers", () => {
@@ -316,6 +353,33 @@ describe("compaction-safeguard summary quality helpers", () => {
       latestAsk: "Explain post-compaction behavior for memory indexing",
     });
     expect(quality.ok).toBe(true);
+  });
+
+  it("dedupes identifiers before applying the result cap", () => {
+    const noisyPrefix = Array.from({ length: 10 }, () => "a0b0c0d0").join(" ");
+    const uniqueTail = Array.from(
+      { length: 12 },
+      (_, idx) => `b${idx.toString(16).padStart(7, "0")}`,
+    );
+    const identifiers = extractOpaqueIdentifiers(`${noisyPrefix} ${uniqueTail.join(" ")}`);
+
+    expect(identifiers).toHaveLength(12);
+    expect(new Set(identifiers).size).toBe(12);
+    expect(identifiers).toContain("a0b0c0d0");
+    expect(identifiers).toContain(uniqueTail[10]);
+  });
+
+  it("filters ordinary short numbers and trims wrapped punctuation", () => {
+    const identifiers = extractOpaqueIdentifiers(
+      "Year 2026 count 42 port 18789 ticket 123456 URL https://example.com/a, path /tmp/x.log.",
+    );
+
+    expect(identifiers).not.toContain("2026");
+    expect(identifiers).not.toContain("42");
+    expect(identifiers).not.toContain("18789");
+    expect(identifiers).toContain("123456");
+    expect(identifiers).toContain("https://example.com/a");
+    expect(identifiers).toContain("/tmp/x.log");
   });
 
   it("fails quality audit when required sections are missing", () => {

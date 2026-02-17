@@ -272,7 +272,7 @@ export const FIELD_HELP: Record<string, string> = {
   "agents.defaults.compaction.qualityGuard.enabled":
     "Enable compaction summary quality checks and retry in safeguard mode (default: true).",
   "agents.defaults.compaction.qualityGuard.maxRetries":
-    "Maximum summary retry attempts when quality checks fail (default: 1).",
+    "Maximum summary retry attempts when quality checks fail (default: 1). Each retry re-runs summarization and may increase token usage.",
   "plugins.enabled": "Enable plugin/extension loading (default: true).",
   "plugins.allow": "Optional allowlist of plugin ids; when set, only listed plugins load.",
   "plugins.deny": "Optional denylist of plugin ids; deny wins over allowlist.",
