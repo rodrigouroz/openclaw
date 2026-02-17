@@ -24,6 +24,9 @@ const MAX_TOOL_FAILURES = 8;
 const MAX_TOOL_FAILURE_CHARS = 240;
 const DEFAULT_RECENT_TURNS_PRESERVE = 3;
 const DEFAULT_QUALITY_GUARD_MAX_RETRIES = 1;
+const MAX_RECENT_TURNS_PRESERVE = 12;
+const MAX_QUALITY_GUARD_MAX_RETRIES = 3;
+const MAX_EXTRACTED_IDENTIFIERS = 12;
 const MAX_RECENT_TURN_TEXT_CHARS = 600;
 const REQUIRED_SUMMARY_SECTIONS = [
   "## Decisions",
@@ -39,6 +42,25 @@ type ToolFailure = {
   summary: string;
   meta?: string;
 };
+
+function clampNonNegativeInt(value: unknown, fallback: number): number {
+  const normalized = typeof value === "number" && Number.isFinite(value) ? value : fallback;
+  return Math.max(0, Math.floor(normalized));
+}
+
+function resolveRecentTurnsPreserve(value: unknown): number {
+  return Math.min(
+    MAX_RECENT_TURNS_PRESERVE,
+    clampNonNegativeInt(value, DEFAULT_RECENT_TURNS_PRESERVE),
+  );
+}
+
+function resolveQualityGuardMaxRetries(value: unknown): number {
+  return Math.min(
+    MAX_QUALITY_GUARD_MAX_RETRIES,
+    clampNonNegativeInt(value, DEFAULT_QUALITY_GUARD_MAX_RETRIES),
+  );
+}
 
 function normalizeFailureText(text: string): string {
   return text.replace(/\s+/g, " ").trim();
@@ -196,7 +218,10 @@ function splitPreservedRecentTurns(params: {
   messages: AgentMessage[];
   recentTurnsPreserve: number;
 }): { summarizableMessages: AgentMessage[]; preservedMessages: AgentMessage[] } {
-  const preserveTurns = Math.max(0, Math.floor(params.recentTurnsPreserve));
+  const preserveTurns = Math.min(
+    MAX_RECENT_TURNS_PRESERVE,
+    clampNonNegativeInt(params.recentTurnsPreserve, 0),
+  );
   if (preserveTurns <= 0) {
     return { summarizableMessages: params.messages, preservedMessages: [] };
   }
@@ -263,6 +288,13 @@ function buildCompactionStructureInstructions(customInstructions?: string): stri
   return `${sectionsTemplate}\n\nAdditional focus:\n${custom}`;
 }
 
+function sanitizeExtractedIdentifier(value: string): string {
+  return value
+    .trim()
+    .replace(/^[("'`[{<]+/, "")
+    .replace(/[)\]"'`,;:.!?<>]+$/, "");
+}
+
 function extractOpaqueIdentifiers(text: string): string[] {
   const matches =
     text.match(
@@ -271,10 +303,10 @@ function extractOpaqueIdentifiers(text: string): string[] {
   return Array.from(
     new Set(
       matches
-        .map((value) => value.trim())
+        .map((value) => sanitizeExtractedIdentifier(value))
         .filter((value) => value.length >= 4),
     ),
-  ).slice(0, 12);
+  ).slice(0, MAX_EXTRACTED_IDENTIFIERS);
 }
 
 function extractLatestUserAsk(messages: AgentMessage[]): string | null {
@@ -404,15 +436,9 @@ export default function compactionSafeguardExtension(api: ExtensionAPI): void {
       const contextWindowTokens = runtime?.contextWindowTokens ?? modelContextWindow;
       const turnPrefixMessages = preparation.turnPrefixMessages ?? [];
       let messagesToSummarize = preparation.messagesToSummarize;
-      const recentTurnsPreserve = Math.max(
-        0,
-        Math.floor(runtime?.recentTurnsPreserve ?? DEFAULT_RECENT_TURNS_PRESERVE),
-      );
+      const recentTurnsPreserve = resolveRecentTurnsPreserve(runtime?.recentTurnsPreserve);
       const qualityGuardEnabled = runtime?.qualityGuardEnabled ?? true;
-      const qualityGuardMaxRetries = Math.max(
-        0,
-        Math.floor(runtime?.qualityGuardMaxRetries ?? DEFAULT_QUALITY_GUARD_MAX_RETRIES),
-      );
+      const qualityGuardMaxRetries = resolveQualityGuardMaxRetries(runtime?.qualityGuardMaxRetries);
 
       const maxHistoryShare = runtime?.maxHistoryShare ?? 0.5;
 
@@ -603,6 +629,8 @@ export const __testing = {
   buildCompactionStructureInstructions,
   extractOpaqueIdentifiers,
   auditSummaryQuality,
+  resolveRecentTurnsPreserve,
+  resolveQualityGuardMaxRetries,
   computeAdaptiveChunkRatio,
   isOversizedForSummary,
   BASE_CHUNK_RATIO,
