@@ -266,16 +266,15 @@ function buildCompactionStructureInstructions(customInstructions?: string): stri
 function extractOpaqueIdentifiers(text: string): string[] {
   const matches =
     text.match(
-      /([a-f0-9]{8,}|https?:\/\/\S+|\/[\w./-]+|[A-Za-z]:\\[\w\\.-]+|[A-Za-z0-9._-]+\.[A-Za-z0-9._/-]+:\d{1,5}|\b\d{2,}\b)/g,
+      /([a-f0-9]{8,}|https?:\/\/\S+|\/[\w./-]+|[A-Za-z]:\\[\w\\.-]+|[A-Za-z0-9._-]+\.[A-Za-z0-9._/-]+:\d{1,5}|\b\d{6,}\b)/g,
     ) ?? [];
   return Array.from(
     new Set(
       matches
         .map((value) => value.trim())
-        .filter((value) => value.length >= 4)
-        .slice(0, 12),
+        .filter((value) => value.length >= 4),
     ),
-  );
+  ).slice(0, 12);
 }
 
 function extractLatestUserAsk(messages: AgentMessage[]): string | null {
