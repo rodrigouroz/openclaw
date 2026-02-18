@@ -93,6 +93,17 @@ export const AgentDefaultsSchema = z
         mode: z.union([z.literal("default"), z.literal("safeguard")]).optional(),
         reserveTokensFloor: z.number().int().nonnegative().optional(),
         maxHistoryShare: z.number().min(0.1).max(0.9).optional(),
+        recentTurnsPreserve: z.number().int().min(0).max(12).optional(),
+        postIndexSync: z
+          .union([z.literal("off"), z.literal("async"), z.literal("await")])
+          .optional(),
+        qualityGuard: z
+          .object({
+            enabled: z.boolean().optional(),
+            maxRetries: z.number().int().min(0).max(3).optional(),
+          })
+          .strict()
+          .optional(),
         memoryFlush: z
           .object({
             enabled: z.boolean().optional(),
