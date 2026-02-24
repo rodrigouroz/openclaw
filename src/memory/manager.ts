@@ -39,6 +39,7 @@ const BATCH_FAILURE_LIMIT = 2;
 const log = createSubsystemLogger("memory");
 
 const INDEX_CACHE = new Map<string, MemoryIndexManager>();
+const INDEX_CACHE_PENDING = new Map<string, Promise<MemoryIndexManager>>();
 
 export class MemoryIndexManager extends MemoryManagerEmbeddingOps implements MemorySearchManager {
   private readonly cacheKey: string;
@@ -116,26 +117,44 @@ export class MemoryIndexManager extends MemoryManagerEmbeddingOps implements Mem
     if (existing) {
       return existing;
     }
-    const providerResult = await createEmbeddingProvider({
-      config: cfg,
-      agentDir: resolveAgentDir(cfg, agentId),
-      provider: settings.provider,
-      remote: settings.remote,
-      model: settings.model,
-      fallback: settings.fallback,
-      local: settings.local,
-    });
-    const manager = new MemoryIndexManager({
-      cacheKey: key,
-      cfg,
-      agentId,
-      workspaceDir,
-      settings,
-      providerResult,
-      purpose: params.purpose,
-    });
-    INDEX_CACHE.set(key, manager);
-    return manager;
+    const pending = INDEX_CACHE_PENDING.get(key);
+    if (pending) {
+      return pending;
+    }
+    const createPromise = (async () => {
+      const providerResult = await createEmbeddingProvider({
+        config: cfg,
+        agentDir: resolveAgentDir(cfg, agentId),
+        provider: settings.provider,
+        remote: settings.remote,
+        model: settings.model,
+        fallback: settings.fallback,
+        local: settings.local,
+      });
+      const refreshed = INDEX_CACHE.get(key);
+      if (refreshed) {
+        return refreshed;
+      }
+      const manager = new MemoryIndexManager({
+        cacheKey: key,
+        cfg,
+        agentId,
+        workspaceDir,
+        settings,
+        providerResult,
+        purpose: params.purpose,
+      });
+      INDEX_CACHE.set(key, manager);
+      return manager;
+    })();
+    INDEX_CACHE_PENDING.set(key, createPromise);
+    try {
+      return await createPromise;
+    } finally {
+      if (INDEX_CACHE_PENDING.get(key) === createPromise) {
+        INDEX_CACHE_PENDING.delete(key);
+      }
+    }
   }
 
   private constructor(params: {
@@ -388,10 +407,43 @@ export class MemoryIndexManager extends MemoryManagerEmbeddingOps implements Mem
     if (this.syncing) {
       return this.syncing;
     }
-    this.syncing = this.runSync(params).finally(() => {
+    this.syncing = this.runSyncWithReadonlyRecovery(params).finally(() => {
       this.syncing = null;
     });
     return this.syncing ?? Promise.resolve();
+  }
+
+  private isReadonlyDbError(err: unknown): boolean {
+    const message = err instanceof Error ? err.message : String(err);
+    return /attempt to write a readonly database|SQLITE_READONLY/i.test(message);
+  }
+
+  private async runSyncWithReadonlyRecovery(params?: {
+    reason?: string;
+    force?: boolean;
+    progress?: (update: MemorySyncProgressUpdate) => void;
+  }): Promise<void> {
+    try {
+      await this.runSync(params);
+      return;
+    } catch (err) {
+      if (!this.isReadonlyDbError(err) || this.closed) {
+        throw err;
+      }
+      const reason = err instanceof Error ? err.message : String(err);
+      log.warn(`memory sync readonly handle detected; reopening sqlite connection`, { reason });
+      try {
+        this.db.close();
+      } catch {}
+      this.db = this.openDatabase();
+      this.vectorReady = null;
+      this.vector.available = null;
+      this.vector.loadError = undefined;
+      this.ensureSchema();
+      const meta = this.readMeta();
+      this.vector.dims = meta?.vectorDims;
+      await this.runSync(params);
+    }
   }
 
   async readFile(params: {
