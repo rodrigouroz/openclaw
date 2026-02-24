@@ -29,6 +29,9 @@ const TURN_PREFIX_INSTRUCTIONS =
   " early progress, and any details needed to understand the retained suffix.";
 const MAX_TOOL_FAILURES = 8;
 const MAX_TOOL_FAILURE_CHARS = 240;
+const DEFAULT_RECENT_TURNS_PRESERVE = 3;
+const MAX_RECENT_TURNS_PRESERVE = 12;
+const MAX_RECENT_TURN_TEXT_CHARS = 600;
 
 type ToolFailure = {
   toolCallId: string;
@@ -36,6 +39,18 @@ type ToolFailure = {
   summary: string;
   meta?: string;
 };
+
+function clampNonNegativeInt(value: unknown, fallback: number): number {
+  const normalized = typeof value === "number" && Number.isFinite(value) ? value : fallback;
+  return Math.max(0, Math.floor(normalized));
+}
+
+function resolveRecentTurnsPreserve(value: unknown): number {
+  return Math.min(
+    MAX_RECENT_TURNS_PRESERVE,
+    clampNonNegativeInt(value, DEFAULT_RECENT_TURNS_PRESERVE),
+  );
+}
 
 function normalizeFailureText(text: string): string {
   return text.replace(/\s+/g, " ").trim();
@@ -159,6 +174,87 @@ function formatFileOperations(readFiles: string[], modifiedFiles: string[]): str
   return `\n\n${sections.join("\n\n")}`;
 }
 
+function extractMessageText(message: AgentMessage): string {
+  const content = (message as { content?: unknown }).content;
+  if (typeof content === "string") {
+    return content.trim();
+  }
+  if (!Array.isArray(content)) {
+    return "";
+  }
+  const parts: string[] = [];
+  for (const block of content) {
+    if (!block || typeof block !== "object") {
+      continue;
+    }
+    const text = (block as { text?: unknown }).text;
+    if (typeof text === "string" && text.trim().length > 0) {
+      parts.push(text.trim());
+    }
+  }
+  return parts.join("\n").trim();
+}
+
+function splitPreservedRecentTurns(params: {
+  messages: AgentMessage[];
+  recentTurnsPreserve: number;
+}): { summarizableMessages: AgentMessage[]; preservedMessages: AgentMessage[] } {
+  const preserveTurns = Math.min(
+    MAX_RECENT_TURNS_PRESERVE,
+    clampNonNegativeInt(params.recentTurnsPreserve, 0),
+  );
+  if (preserveTurns <= 0) {
+    return { summarizableMessages: params.messages, preservedMessages: [] };
+  }
+  const preserveMessages = preserveTurns * 2;
+  const candidateIndexes: number[] = [];
+  for (let i = params.messages.length - 1; i >= 0; i -= 1) {
+    const role = (params.messages[i] as { role?: unknown }).role;
+    if (role === "user" || role === "assistant") {
+      candidateIndexes.push(i);
+    }
+    if (candidateIndexes.length >= preserveMessages) {
+      break;
+    }
+  }
+  if (candidateIndexes.length === 0) {
+    return { summarizableMessages: params.messages, preservedMessages: [] };
+  }
+  const preservedIndexSet = new Set(candidateIndexes);
+  const summarizableMessages = params.messages.filter((_, idx) => !preservedIndexSet.has(idx));
+  const preservedMessages = params.messages
+    .filter((_, idx) => preservedIndexSet.has(idx))
+    .filter((msg) => {
+      const role = (msg as { role?: unknown }).role;
+      return role === "user" || role === "assistant";
+    });
+  return { summarizableMessages, preservedMessages };
+}
+
+function formatPreservedTurnsSection(messages: AgentMessage[]): string {
+  if (messages.length === 0) {
+    return "";
+  }
+  const lines = messages
+    .map((message) => {
+      const role = message.role === "assistant" ? "Assistant" : "User";
+      const text = extractMessageText(message);
+      if (!text) {
+        return null;
+      }
+      const trimmed =
+        text.length > MAX_RECENT_TURN_TEXT_CHARS
+          ? `${text.slice(0, MAX_RECENT_TURN_TEXT_CHARS)}...`
+          : text;
+      return `- ${role}: ${trimmed}`;
+    })
+    .filter((line): line is string => Boolean(line));
+  if (lines.length === 0) {
+    return "";
+  }
+  return `\n\n## Recent turns preserved verbatim\n${lines.join("\n")}`;
+}
+
 /**
  * Read and format critical workspace context for compaction summary.
  * Extracts "Session Startup" and "Red Lines" from AGENTS.md.
@@ -256,6 +352,7 @@ export default function compactionSafeguardExtension(api: ExtensionAPI): void {
       const contextWindowTokens = runtime?.contextWindowTokens ?? modelContextWindow;
       const turnPrefixMessages = preparation.turnPrefixMessages ?? [];
       let messagesToSummarize = preparation.messagesToSummarize;
+      const recentTurnsPreserve = resolveRecentTurnsPreserve(runtime?.recentTurnsPreserve);
 
       const maxHistoryShare = runtime?.maxHistoryShare ?? 0.5;
 
@@ -326,6 +423,16 @@ export default function compactionSafeguardExtension(api: ExtensionAPI): void {
         }
       }
 
+      const {
+        summarizableMessages: summaryTargetMessages,
+        preservedMessages: preservedRecentMessages,
+      } = splitPreservedRecentTurns({
+        messages: messagesToSummarize,
+        recentTurnsPreserve,
+      });
+      messagesToSummarize = summaryTargetMessages;
+      const preservedTurnsSection = formatPreservedTurnsSection(preservedRecentMessages);
+
       // Use adaptive chunk ratio based on message sizes, reserving headroom for
       // the summarization prompt, system prompt, previous summary, and reasoning budget
       // that generateSummary adds on top of the serialized conversation chunk.
@@ -370,6 +477,7 @@ export default function compactionSafeguardExtension(api: ExtensionAPI): void {
         });
         summary = `${historySummary}\n\n---\n\n**Turn Context (split turn):**\n\n${prefixSummary}`;
       }
+      summary += preservedTurnsSection;
 
       summary += toolFailureSection;
       summary += fileOpsSummary;
@@ -402,6 +510,9 @@ export default function compactionSafeguardExtension(api: ExtensionAPI): void {
 export const __testing = {
   collectToolFailures,
   formatToolFailuresSection,
+  splitPreservedRecentTurns,
+  formatPreservedTurnsSection,
+  resolveRecentTurnsPreserve,
   computeAdaptiveChunkRatio,
   isOversizedForSummary,
   readWorkspaceContextForSummary,

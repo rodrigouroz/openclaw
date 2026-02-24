@@ -15,6 +15,9 @@ import compactionSafeguardExtension, { __testing } from "./compaction-safeguard.
 const {
   collectToolFailures,
   formatToolFailuresSection,
+  splitPreservedRecentTurns,
+  formatPreservedTurnsSection,
+  resolveRecentTurnsPreserve,
   computeAdaptiveChunkRatio,
   isOversizedForSummary,
   readWorkspaceContextForSummary,
@@ -382,6 +385,42 @@ describe("compaction-safeguard runtime registry", () => {
       contextWindowTokens: 200000,
       model,
     });
+  });
+});
+
+describe("compaction-safeguard recent-turn preservation", () => {
+  it("preserves the most recent user/assistant messages", () => {
+    const messages: AgentMessage[] = [
+      { role: "user", content: "older ask", timestamp: 1 },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "older answer" }],
+        timestamp: 2,
+      } as unknown as AgentMessage,
+      { role: "user", content: "recent ask", timestamp: 3 },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "recent answer" }],
+        timestamp: 4,
+      } as unknown as AgentMessage,
+    ];
+
+    const split = splitPreservedRecentTurns({
+      messages,
+      recentTurnsPreserve: 1,
+    });
+
+    expect(split.preservedMessages).toHaveLength(2);
+    expect(split.summarizableMessages).toHaveLength(2);
+    expect(formatPreservedTurnsSection(split.preservedMessages)).toContain(
+      "## Recent turns preserved verbatim",
+    );
+  });
+
+  it("clamps preserve count into a safe range", () => {
+    expect(resolveRecentTurnsPreserve(undefined)).toBe(3);
+    expect(resolveRecentTurnsPreserve(-1)).toBe(0);
+    expect(resolveRecentTurnsPreserve(99)).toBe(12);
   });
 });
 
