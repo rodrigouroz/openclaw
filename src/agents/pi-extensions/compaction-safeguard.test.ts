@@ -546,6 +546,19 @@ describe("compaction-safeguard recent-turn preservation", () => {
     expect(section).toContain("[non-text content: image]");
   });
 
+  it("does not add non-text placeholders for text-only content blocks", () => {
+    const section = formatPreservedTurnsSection([
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "plain text reply" }],
+        timestamp: 1,
+      } as unknown as AgentMessage,
+    ]);
+
+    expect(section).toContain("- Assistant: plain text reply");
+    expect(section).not.toContain("[non-text content]");
+  });
+
   it("clamps preserve count into a safe range", () => {
     expect(resolveRecentTurnsPreserve(undefined)).toBe(3);
     expect(resolveRecentTurnsPreserve(-1)).toBe(0);

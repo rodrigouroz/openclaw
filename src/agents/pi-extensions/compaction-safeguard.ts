@@ -220,7 +220,7 @@ function formatNonTextPlaceholder(content: unknown): string | null {
     typeCounts.set(type, (typeCounts.get(type) ?? 0) + 1);
   }
   if (typeCounts.size === 0) {
-    return "[non-text content]";
+    return null;
   }
   const parts = [...typeCounts.entries()].map(([type, count]) =>
     count > 1 ? `${type} x${count}` : type,
