@@ -196,6 +196,54 @@ function extractMessageText(message: AgentMessage): string {
   return parts.join("\n").trim();
 }
 
+function formatNonTextPlaceholder(content: unknown): string | null {
+  if (content === null || content === undefined) {
+    return null;
+  }
+  if (!Array.isArray(content)) {
+    return "[non-text content]";
+  }
+  const typeCounts = new Map<string, number>();
+  for (const block of content) {
+    if (!block || typeof block !== "object") {
+      continue;
+    }
+    const typeRaw = (block as { type?: unknown }).type;
+    const type = typeof typeRaw === "string" && typeRaw.trim().length > 0 ? typeRaw : "unknown";
+    if (type === "text") {
+      continue;
+    }
+    typeCounts.set(type, (typeCounts.get(type) ?? 0) + 1);
+  }
+  if (typeCounts.size === 0) {
+    return "[non-text content]";
+  }
+  const parts = [...typeCounts.entries()].map(([type, count]) =>
+    count > 1 ? `${type} x${count}` : type,
+  );
+  return `[non-text content: ${parts.join(", ")}]`;
+}
+
+function findPreservedStartIndexByTurnBoundary(
+  messages: AgentMessage[],
+  preserveTurns: number,
+): number {
+  let seenUsers = 0;
+  let earliestSelectedUserIndex = -1;
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const role = (messages[i] as { role?: unknown }).role;
+    if (role !== "user") {
+      continue;
+    }
+    seenUsers += 1;
+    earliestSelectedUserIndex = i;
+    if (seenUsers >= preserveTurns) {
+      return i;
+    }
+  }
+  return earliestSelectedUserIndex;
+}
+
 function splitPreservedRecentTurns(params: {
   messages: AgentMessage[];
   recentTurnsPreserve: number;
@@ -207,21 +255,30 @@ function splitPreservedRecentTurns(params: {
   if (preserveTurns <= 0) {
     return { summarizableMessages: params.messages, preservedMessages: [] };
   }
-  const preserveMessages = preserveTurns * 2;
-  const candidateIndexes: number[] = [];
-  for (let i = params.messages.length - 1; i >= 0; i -= 1) {
-    const role = (params.messages[i] as { role?: unknown }).role;
-    if (role === "user" || role === "assistant") {
-      candidateIndexes.push(i);
+  const boundaryStartIndex = findPreservedStartIndexByTurnBoundary(params.messages, preserveTurns);
+  const preservedIndexSet = new Set<number>();
+  if (boundaryStartIndex >= 0) {
+    for (let i = boundaryStartIndex; i < params.messages.length; i += 1) {
+      const role = (params.messages[i] as { role?: unknown }).role;
+      if (role === "user" || role === "assistant") {
+        preservedIndexSet.add(i);
+      }
     }
-    if (candidateIndexes.length >= preserveMessages) {
-      break;
+  } else {
+    const fallbackMessageCount = preserveTurns * 2;
+    for (let i = params.messages.length - 1; i >= 0; i -= 1) {
+      const role = (params.messages[i] as { role?: unknown }).role;
+      if (role === "user" || role === "assistant") {
+        preservedIndexSet.add(i);
+      }
+      if (preservedIndexSet.size >= fallbackMessageCount) {
+        break;
+      }
     }
   }
-  if (candidateIndexes.length === 0) {
+  if (preservedIndexSet.size === 0) {
     return { summarizableMessages: params.messages, preservedMessages: [] };
   }
-  const preservedIndexSet = new Set(candidateIndexes);
   const summarizableMessages = params.messages.filter((_, idx) => !preservedIndexSet.has(idx));
   // Preserving recent assistant turns can orphan downstream toolResult messages.
   // Repair pairings here so compaction summarization doesn't trip strict providers.
@@ -243,13 +300,17 @@ function formatPreservedTurnsSection(messages: AgentMessage[]): string {
     .map((message) => {
       const role = message.role === "assistant" ? "Assistant" : "User";
       const text = extractMessageText(message);
-      if (!text) {
+      const nonTextPlaceholder = formatNonTextPlaceholder(
+        (message as { content?: unknown }).content,
+      );
+      const rendered = text || nonTextPlaceholder;
+      if (!rendered) {
         return null;
       }
       const trimmed =
-        text.length > MAX_RECENT_TURN_TEXT_CHARS
-          ? `${text.slice(0, MAX_RECENT_TURN_TEXT_CHARS)}...`
-          : text;
+        rendered.length > MAX_RECENT_TURN_TEXT_CHARS
+          ? `${rendered.slice(0, MAX_RECENT_TURN_TEXT_CHARS)}...`
+          : rendered;
       return `- ${role}: ${trimmed}`;
     })
     .filter((line): line is string => Boolean(line));

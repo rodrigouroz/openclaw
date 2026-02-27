@@ -445,6 +445,11 @@ describe("compaction-safeguard recent-turn preservation", () => {
         content: [{ type: "text", text: "recent result" }],
         timestamp: 6,
       } as unknown as AgentMessage,
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "recent final answer" }],
+        timestamp: 7,
+      } as unknown as AgentMessage,
     ];
 
     const split = splitPreservedRecentTurns({
@@ -452,11 +457,40 @@ describe("compaction-safeguard recent-turn preservation", () => {
       recentTurnsPreserve: 1,
     });
 
+    expect(split.preservedMessages.map((msg) => msg.role)).toEqual([
+      "user",
+      "assistant",
+      "assistant",
+    ]);
+    expect(
+      split.preservedMessages.some(
+        (msg) => msg.role === "user" && (msg as { content?: unknown }).content === "recent ask",
+      ),
+    ).toBe(true);
+
     const summarizableToolResultIds = split.summarizableMessages
       .filter((msg) => msg.role === "toolResult")
       .map((msg) => (msg as { toolCallId?: unknown }).toolCallId);
     expect(summarizableToolResultIds).toContain("call_old");
     expect(summarizableToolResultIds).not.toContain("call_recent");
+  });
+
+  it("formats preserved non-text messages with placeholders", () => {
+    const section = formatPreservedTurnsSection([
+      {
+        role: "user",
+        content: [{ type: "image", data: "abc", mimeType: "image/png" }],
+        timestamp: 1,
+      } as unknown as AgentMessage,
+      {
+        role: "assistant",
+        content: [{ type: "toolCall", id: "call_recent", name: "read", arguments: {} }],
+        timestamp: 2,
+      } as unknown as AgentMessage,
+    ]);
+
+    expect(section).toContain("- User: [non-text content: image]");
+    expect(section).toContain("- Assistant: [non-text content: toolCall]");
   });
 
   it("clamps preserve count into a safe range", () => {
