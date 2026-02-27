@@ -460,6 +460,7 @@ describe("compaction-safeguard recent-turn preservation", () => {
     expect(split.preservedMessages.map((msg) => msg.role)).toEqual([
       "user",
       "assistant",
+      "toolResult",
       "assistant",
     ]);
     expect(
@@ -473,6 +474,42 @@ describe("compaction-safeguard recent-turn preservation", () => {
       .map((msg) => (msg as { toolCallId?: unknown }).toolCallId);
     expect(summarizableToolResultIds).toContain("call_old");
     expect(summarizableToolResultIds).not.toContain("call_recent");
+  });
+
+  it("includes preserved tool results in the preserved-turns section", () => {
+    const split = splitPreservedRecentTurns({
+      messages: [
+        { role: "user", content: "older ask", timestamp: 1 },
+        {
+          role: "assistant",
+          content: [{ type: "text", text: "older answer" }],
+          timestamp: 2,
+        } as unknown as AgentMessage,
+        { role: "user", content: "recent ask", timestamp: 3 },
+        {
+          role: "assistant",
+          content: [{ type: "toolCall", id: "call_recent", name: "read", arguments: {} }],
+          timestamp: 4,
+        } as unknown as AgentMessage,
+        {
+          role: "toolResult",
+          toolCallId: "call_recent",
+          toolName: "read",
+          content: [{ type: "text", text: "recent raw output" }],
+          timestamp: 5,
+        } as unknown as AgentMessage,
+        {
+          role: "assistant",
+          content: [{ type: "text", text: "recent final answer" }],
+          timestamp: 6,
+        } as unknown as AgentMessage,
+      ],
+      recentTurnsPreserve: 1,
+    });
+
+    const section = formatPreservedTurnsSection(split.preservedMessages);
+    expect(section).toContain("- Tool result (read): recent raw output");
+    expect(section).toContain("- User: recent ask");
   });
 
   it("formats preserved non-text messages with placeholders", () => {

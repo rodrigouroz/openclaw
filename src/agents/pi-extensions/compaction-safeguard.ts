@@ -19,6 +19,7 @@ import {
 } from "../compaction.js";
 import { collectTextContentBlocks } from "../content-blocks.js";
 import { repairToolUseResultPairing } from "../session-transcript-repair.js";
+import { extractToolCallsFromAssistant, extractToolResultId } from "../tool-call-id.js";
 import { getCompactionSafeguardRuntime } from "./compaction-safeguard-runtime.js";
 
 const log = createSubsystemLogger("compaction-safeguard");
@@ -279,6 +280,46 @@ function splitPreservedRecentTurns(params: {
   if (preservedIndexSet.size === 0) {
     return { summarizableMessages: params.messages, preservedMessages: [] };
   }
+  const preservedToolCallIds = new Set<string>();
+  for (let i = 0; i < params.messages.length; i += 1) {
+    if (!preservedIndexSet.has(i)) {
+      continue;
+    }
+    const message = params.messages[i];
+    const role = (message as { role?: unknown }).role;
+    if (role !== "assistant") {
+      continue;
+    }
+    const toolCalls = extractToolCallsFromAssistant(
+      message as Extract<AgentMessage, { role: "assistant" }>,
+    );
+    for (const toolCall of toolCalls) {
+      preservedToolCallIds.add(toolCall.id);
+    }
+  }
+  if (preservedToolCallIds.size > 0) {
+    let preservedStartIndex = -1;
+    for (let i = 0; i < params.messages.length; i += 1) {
+      if (preservedIndexSet.has(i)) {
+        preservedStartIndex = i;
+        break;
+      }
+    }
+    if (preservedStartIndex >= 0) {
+      for (let i = preservedStartIndex; i < params.messages.length; i += 1) {
+        const message = params.messages[i];
+        if ((message as { role?: unknown }).role !== "toolResult") {
+          continue;
+        }
+        const toolResultId = extractToolResultId(
+          message as Extract<AgentMessage, { role: "toolResult" }>,
+        );
+        if (toolResultId && preservedToolCallIds.has(toolResultId)) {
+          preservedIndexSet.add(i);
+        }
+      }
+    }
+  }
   const summarizableMessages = params.messages.filter((_, idx) => !preservedIndexSet.has(idx));
   // Preserving recent assistant turns can orphan downstream toolResult messages.
   // Repair pairings here so compaction summarization doesn't trip strict providers.
@@ -287,7 +328,7 @@ function splitPreservedRecentTurns(params: {
     .filter((_, idx) => preservedIndexSet.has(idx))
     .filter((msg) => {
       const role = (msg as { role?: unknown }).role;
-      return role === "user" || role === "assistant";
+      return role === "user" || role === "assistant" || role === "toolResult";
     });
   return { summarizableMessages: repairedSummarizableMessages, preservedMessages };
 }
@@ -298,7 +339,18 @@ function formatPreservedTurnsSection(messages: AgentMessage[]): string {
   }
   const lines = messages
     .map((message) => {
-      const role = message.role === "assistant" ? "Assistant" : "User";
+      let roleLabel: string;
+      if (message.role === "assistant") {
+        roleLabel = "Assistant";
+      } else if (message.role === "user") {
+        roleLabel = "User";
+      } else if (message.role === "toolResult") {
+        const toolName = (message as { toolName?: unknown }).toolName;
+        const safeToolName = typeof toolName === "string" && toolName.trim() ? toolName : "tool";
+        roleLabel = `Tool result (${safeToolName})`;
+      } else {
+        return null;
+      }
       const text = extractMessageText(message);
       const nonTextPlaceholder = formatNonTextPlaceholder(
         (message as { content?: unknown }).content,
@@ -311,7 +363,7 @@ function formatPreservedTurnsSection(messages: AgentMessage[]): string {
         rendered.length > MAX_RECENT_TURN_TEXT_CHARS
           ? `${rendered.slice(0, MAX_RECENT_TURN_TEXT_CHARS)}...`
           : rendered;
-      return `- ${role}: ${trimmed}`;
+      return `- ${roleLabel}: ${trimmed}`;
     })
     .filter((line): line is string => Boolean(line));
   if (lines.length === 0) {
