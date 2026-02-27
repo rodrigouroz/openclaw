@@ -376,6 +376,16 @@ function formatPreservedTurnsSection(messages: AgentMessage[]): string {
   return `\n\n## Recent turns preserved verbatim\n${lines.join("\n")}`;
 }
 
+function appendSummarySection(summary: string, section: string): string {
+  if (!section) {
+    return summary;
+  }
+  if (!summary.trim()) {
+    return section.trimStart();
+  }
+  return `${summary}${section}`;
+}
+
 /**
  * Read and format critical workspace context for compaction summary.
  * Extracts "Session Startup" and "Red Lines" from AGENTS.md.
@@ -569,18 +579,21 @@ export default function compactionSafeguardExtension(api: ExtensionAPI): void {
       // incorporates context from pruned messages instead of losing it entirely.
       const effectivePreviousSummary = droppedSummary ?? preparation.previousSummary;
 
-      const historySummary = await summarizeInStages({
-        messages: messagesToSummarize,
-        model,
-        apiKey,
-        signal,
-        reserveTokens,
-        maxChunkTokens,
-        contextWindow: contextWindowTokens,
-        customInstructions,
-        summarizationInstructions,
-        previousSummary: effectivePreviousSummary,
-      });
+      const historySummary =
+        messagesToSummarize.length > 0
+          ? await summarizeInStages({
+              messages: messagesToSummarize,
+              model,
+              apiKey,
+              signal,
+              reserveTokens,
+              maxChunkTokens,
+              contextWindow: contextWindowTokens,
+              customInstructions,
+              summarizationInstructions,
+              previousSummary: effectivePreviousSummary,
+            })
+          : (effectivePreviousSummary?.trim() ?? "");
 
       let summary = historySummary;
       if (preparation.isSplitTurn && turnPrefixMessages.length > 0) {
@@ -596,17 +609,20 @@ export default function compactionSafeguardExtension(api: ExtensionAPI): void {
           summarizationInstructions,
           previousSummary: undefined,
         });
-        summary = `${historySummary}\n\n---\n\n**Turn Context (split turn):**\n\n${prefixSummary}`;
+        const splitTurnSection = `**Turn Context (split turn):**\n\n${prefixSummary}`;
+        summary = historySummary.trim()
+          ? `${historySummary}\n\n---\n\n${splitTurnSection}`
+          : splitTurnSection;
       }
-      summary += preservedTurnsSection;
+      summary = appendSummarySection(summary, preservedTurnsSection);
 
-      summary += toolFailureSection;
-      summary += fileOpsSummary;
+      summary = appendSummarySection(summary, toolFailureSection);
+      summary = appendSummarySection(summary, fileOpsSummary);
 
       // Append workspace critical context (Session Startup + Red Lines from AGENTS.md)
       const workspaceContext = await readWorkspaceContextForSummary();
       if (workspaceContext) {
-        summary += workspaceContext;
+        summary = appendSummarySection(summary, workspaceContext);
       }
 
       return {
@@ -633,6 +649,7 @@ export const __testing = {
   formatToolFailuresSection,
   splitPreservedRecentTurns,
   formatPreservedTurnsSection,
+  appendSummarySection,
   resolveRecentTurnsPreserve,
   computeAdaptiveChunkRatio,
   isOversizedForSummary,

@@ -17,6 +17,7 @@ const {
   formatToolFailuresSection,
   splitPreservedRecentTurns,
   formatPreservedTurnsSection,
+  appendSummarySection,
   resolveRecentTurnsPreserve,
   computeAdaptiveChunkRatio,
   isOversizedForSummary,
@@ -619,6 +620,19 @@ describe("compaction-safeguard recent-turn preservation", () => {
     ).toBe(true);
     expect(formatPreservedTurnsSection(split.preservedMessages)).toContain("assistant-8");
     expect(formatPreservedTurnsSection(split.preservedMessages)).not.toContain("assistant-2");
+  });
+
+  it("trim-starts preserved section when history summary is empty", () => {
+    const summary = appendSummarySection(
+      "",
+      "\n\n## Recent turns preserved verbatim\n- User: hello",
+    );
+    expect(summary.startsWith("## Recent turns preserved verbatim")).toBe(true);
+  });
+
+  it("does not append empty summary sections", () => {
+    expect(appendSummarySection("History", "")).toBe("History");
+    expect(appendSummarySection("", "")).toBe("");
   });
 
   it("clamps preserve count into a safe range", () => {
