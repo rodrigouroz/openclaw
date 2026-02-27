@@ -18,6 +18,7 @@ import {
   summarizeInStages,
 } from "../compaction.js";
 import { collectTextContentBlocks } from "../content-blocks.js";
+import { repairToolUseResultPairing } from "../session-transcript-repair.js";
 import { getCompactionSafeguardRuntime } from "./compaction-safeguard-runtime.js";
 
 const log = createSubsystemLogger("compaction-safeguard");
@@ -222,13 +223,16 @@ function splitPreservedRecentTurns(params: {
   }
   const preservedIndexSet = new Set(candidateIndexes);
   const summarizableMessages = params.messages.filter((_, idx) => !preservedIndexSet.has(idx));
+  // Preserving recent assistant turns can orphan downstream toolResult messages.
+  // Repair pairings here so compaction summarization doesn't trip strict providers.
+  const repairedSummarizableMessages = repairToolUseResultPairing(summarizableMessages).messages;
   const preservedMessages = params.messages
     .filter((_, idx) => preservedIndexSet.has(idx))
     .filter((msg) => {
       const role = (msg as { role?: unknown }).role;
       return role === "user" || role === "assistant";
     });
-  return { summarizableMessages, preservedMessages };
+  return { summarizableMessages: repairedSummarizableMessages, preservedMessages };
 }
 
 function formatPreservedTurnsSection(messages: AgentMessage[]): string {

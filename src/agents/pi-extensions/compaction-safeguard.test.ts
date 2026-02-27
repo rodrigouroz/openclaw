@@ -417,6 +417,48 @@ describe("compaction-safeguard recent-turn preservation", () => {
     );
   });
 
+  it("drops orphaned tool results from preserved assistant turns", () => {
+    const messages: AgentMessage[] = [
+      { role: "user", content: "older ask", timestamp: 1 },
+      {
+        role: "assistant",
+        content: [{ type: "toolCall", id: "call_old", name: "read", arguments: {} }],
+        timestamp: 2,
+      } as unknown as AgentMessage,
+      {
+        role: "toolResult",
+        toolCallId: "call_old",
+        toolName: "read",
+        content: [{ type: "text", text: "old result" }],
+        timestamp: 3,
+      } as unknown as AgentMessage,
+      { role: "user", content: "recent ask", timestamp: 4 },
+      {
+        role: "assistant",
+        content: [{ type: "toolCall", id: "call_recent", name: "read", arguments: {} }],
+        timestamp: 5,
+      } as unknown as AgentMessage,
+      {
+        role: "toolResult",
+        toolCallId: "call_recent",
+        toolName: "read",
+        content: [{ type: "text", text: "recent result" }],
+        timestamp: 6,
+      } as unknown as AgentMessage,
+    ];
+
+    const split = splitPreservedRecentTurns({
+      messages,
+      recentTurnsPreserve: 1,
+    });
+
+    const summarizableToolResultIds = split.summarizableMessages
+      .filter((msg) => msg.role === "toolResult")
+      .map((msg) => (msg as { toolCallId?: unknown }).toolCallId);
+    expect(summarizableToolResultIds).toContain("call_old");
+    expect(summarizableToolResultIds).not.toContain("call_recent");
+  });
+
   it("clamps preserve count into a safe range", () => {
     expect(resolveRecentTurnsPreserve(undefined)).toBe(3);
     expect(resolveRecentTurnsPreserve(-1)).toBe(0);
