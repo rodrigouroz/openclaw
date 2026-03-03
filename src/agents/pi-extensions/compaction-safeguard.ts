@@ -531,6 +531,10 @@ export default function compactionSafeguardExtension(api: ExtensionAPI): void {
       const turnPrefixMessages = preparation.turnPrefixMessages ?? [];
       let messagesToSummarize = preparation.messagesToSummarize;
       const recentTurnsPreserve = resolveRecentTurnsPreserve(runtime?.recentTurnsPreserve);
+      const structuredInstructions = buildCompactionStructureInstructions(
+        customInstructions,
+        summarizationInstructions,
+      );
 
       const maxHistoryShare = runtime?.maxHistoryShare ?? 0.5;
 
@@ -585,7 +589,7 @@ export default function compactionSafeguardExtension(api: ExtensionAPI): void {
                   reserveTokens: Math.max(1, Math.floor(preparation.settings.reserveTokens)),
                   maxChunkTokens: droppedMaxChunkTokens,
                   contextWindow: contextWindowTokens,
-                  customInstructions,
+                  customInstructions: structuredInstructions,
                   summarizationInstructions,
                   previousSummary: preparation.previousSummary,
                 });
@@ -610,10 +614,6 @@ export default function compactionSafeguardExtension(api: ExtensionAPI): void {
       });
       messagesToSummarize = summaryTargetMessages;
       const preservedTurnsSection = formatPreservedTurnsSection(preservedRecentMessages);
-      const structuredInstructions = buildCompactionStructureInstructions(
-        customInstructions,
-        summarizationInstructions,
-      );
 
       // Use adaptive chunk ratio based on message sizes, reserving headroom for
       // the summarization prompt, system prompt, previous summary, and reasoning budget

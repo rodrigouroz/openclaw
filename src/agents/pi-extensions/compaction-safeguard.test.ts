@@ -5,12 +5,23 @@ import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type { Api, Model } from "@mariozechner/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
+import * as compactionModule from "../compaction.js";
 import { castAgentMessage } from "../test-helpers/agent-message-fixtures.js";
 import {
   getCompactionSafeguardRuntime,
   setCompactionSafeguardRuntime,
 } from "./compaction-safeguard-runtime.js";
 import compactionSafeguardExtension, { __testing } from "./compaction-safeguard.js";
+
+vi.mock("../compaction.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof compactionModule>();
+  return {
+    ...actual,
+    summarizeInStages: vi.fn(actual.summarizeInStages),
+  };
+});
+
+const mockSummarizeInStages = vi.mocked(compactionModule.summarizeInStages);
 
 const {
   collectToolFailures,
@@ -667,6 +678,63 @@ describe("compaction-safeguard recent-turn preservation", () => {
     });
     expect(instructions).toContain("For ## Exact identifiers, follow this policy:");
     expect(instructions).toContain("Exclude secrets and one-time tokens from summaries.");
+  });
+
+  it("uses structured instructions when summarizing dropped history chunks", async () => {
+    mockSummarizeInStages.mockReset();
+    mockSummarizeInStages.mockResolvedValue("mock summary");
+
+    const sessionManager = stubSessionManager();
+    const model = createAnthropicModelFixture();
+    setCompactionSafeguardRuntime(sessionManager, {
+      model,
+      maxHistoryShare: 0.1,
+      recentTurnsPreserve: 12,
+    });
+
+    const compactionHandler = createCompactionHandler();
+    const getApiKeyMock = vi.fn().mockResolvedValue("test-key");
+    const mockContext = createCompactionContext({
+      sessionManager,
+      getApiKeyMock,
+    });
+    const messagesToSummarize: AgentMessage[] = Array.from({ length: 4 }, (_unused, index) => ({
+      role: "user",
+      content: `msg-${index}-${"x".repeat(120_000)}`,
+      timestamp: index + 1,
+    }));
+    const event = {
+      preparation: {
+        messagesToSummarize,
+        turnPrefixMessages: [],
+        firstKeptEntryId: "entry-1",
+        tokensBefore: 400_000,
+        fileOps: {
+          read: [],
+          edited: [],
+          written: [],
+        },
+        settings: { reserveTokens: 4000 },
+        previousSummary: undefined,
+        isSplitTurn: false,
+      },
+      customInstructions: "Keep security caveats.",
+      signal: new AbortController().signal,
+    };
+
+    const result = (await compactionHandler(event, mockContext)) as {
+      cancel?: boolean;
+      compaction?: { summary?: string };
+    };
+
+    expect(result.cancel).not.toBe(true);
+    expect(mockSummarizeInStages).toHaveBeenCalled();
+    const droppedCall = mockSummarizeInStages.mock.calls[0]?.[0];
+    expect(droppedCall?.customInstructions).toContain(
+      "Produce a compact, factual summary with these exact section headings:",
+    );
+    expect(droppedCall?.customInstructions).toContain("## Decisions");
+    expect(droppedCall?.customInstructions).toContain("Keep security caveats.");
   });
 });
 
