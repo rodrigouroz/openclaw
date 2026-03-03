@@ -661,6 +661,7 @@ describe("compaction-safeguard recent-turn preservation", () => {
     expect(instructions).toContain("## Pending user asks");
     expect(instructions).toContain("## Exact identifiers");
     expect(instructions).toContain("Keep security caveats.");
+    expect(instructions).not.toContain("Additional focus:");
   });
 
   it("does not force strict identifier retention when identifier policy is off", () => {
@@ -670,7 +671,6 @@ describe("compaction-safeguard recent-turn preservation", () => {
     expect(instructions).toContain("## Exact identifiers");
     expect(instructions).toContain("N/A (identifier policy off)");
     expect(instructions).not.toContain("preserve literal values exactly as seen");
-    expect(instructions).not.toContain("needed for continuity");
   });
 
   it("threads custom identifier policy text into structured instructions", () => {

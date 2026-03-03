@@ -420,7 +420,9 @@ function buildCompactionStructureInstructions(
   if (!custom) {
     return sectionsTemplate;
   }
-  return `${sectionsTemplate}\n\nAdditional focus:\n${custom}`;
+  // summarizeInStages already wraps custom instructions once with "Additional focus:".
+  // Keep this helper label-free to avoid nested/duplicated headers.
+  return `${sectionsTemplate}\n\n${custom}`;
 }
 
 function appendSummarySection(summary: string, section: string): string {
