@@ -7,6 +7,7 @@ import { openBoundaryFile } from "../../infra/boundary-file-read.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
 import {
   BASE_CHUNK_RATIO,
+  type CompactionSummarizationInstructions,
   MIN_CHUNK_RATIO,
   SAFETY_MARGIN,
   SUMMARIZATION_OVERHEAD_TOKENS,
@@ -41,6 +42,10 @@ const REQUIRED_SUMMARY_SECTIONS = [
   "## Pending user asks",
   "## Exact identifiers",
 ] as const;
+const STRICT_EXACT_IDENTIFIERS_INSTRUCTION =
+  "For ## Exact identifiers, preserve literal values exactly as seen (IDs, URLs, file paths, ports, hashes, dates, times).";
+const POLICY_OFF_EXACT_IDENTIFIERS_INSTRUCTION =
+  "For ## Exact identifiers, include only context needed for continuity, following current compaction identifier policy.";
 
 type ToolFailure = {
   toolCallId: string;
@@ -383,11 +388,32 @@ function formatPreservedTurnsSection(messages: AgentMessage[]): string {
   return `\n\n## Recent turns preserved verbatim\n${lines.join("\n")}`;
 }
 
-function buildCompactionStructureInstructions(customInstructions?: string): string {
+function resolveExactIdentifierSectionInstruction(
+  summarizationInstructions?: CompactionSummarizationInstructions,
+): string {
+  const policy = summarizationInstructions?.identifierPolicy ?? "strict";
+  if (policy === "off") {
+    return POLICY_OFF_EXACT_IDENTIFIERS_INSTRUCTION;
+  }
+  if (policy === "custom") {
+    const custom = summarizationInstructions?.identifierInstructions?.trim();
+    if (custom) {
+      return `For ## Exact identifiers, follow this policy:\n${custom}`;
+    }
+  }
+  return STRICT_EXACT_IDENTIFIERS_INSTRUCTION;
+}
+
+function buildCompactionStructureInstructions(
+  customInstructions?: string,
+  summarizationInstructions?: CompactionSummarizationInstructions,
+): string {
+  const identifierSectionInstruction =
+    resolveExactIdentifierSectionInstruction(summarizationInstructions);
   const sectionsTemplate = [
     "Produce a compact, factual summary with these exact section headings:",
     ...REQUIRED_SUMMARY_SECTIONS,
-    "For ## Exact identifiers, preserve literal values exactly as seen (IDs, URLs, file paths, ports, hashes, dates, times).",
+    identifierSectionInstruction,
     "Do not omit unresolved asks from the user.",
   ].join("\n");
   const custom = customInstructions?.trim();
@@ -584,7 +610,10 @@ export default function compactionSafeguardExtension(api: ExtensionAPI): void {
       });
       messagesToSummarize = summaryTargetMessages;
       const preservedTurnsSection = formatPreservedTurnsSection(preservedRecentMessages);
-      const structuredInstructions = buildCompactionStructureInstructions(customInstructions);
+      const structuredInstructions = buildCompactionStructureInstructions(
+        customInstructions,
+        summarizationInstructions,
+      );
 
       // Use adaptive chunk ratio based on message sizes, reserving headroom for
       // the summarization prompt, system prompt, previous summary, and reasoning budget

@@ -645,8 +645,28 @@ describe("compaction-safeguard recent-turn preservation", () => {
   it("builds structured instructions with required sections", () => {
     const instructions = buildCompactionStructureInstructions("Keep security caveats.");
     expect(instructions).toContain("## Decisions");
+    expect(instructions).toContain("## Open TODOs");
+    expect(instructions).toContain("## Constraints/Rules");
+    expect(instructions).toContain("## Pending user asks");
     expect(instructions).toContain("## Exact identifiers");
     expect(instructions).toContain("Keep security caveats.");
+  });
+
+  it("does not force strict identifier retention when identifier policy is off", () => {
+    const instructions = buildCompactionStructureInstructions(undefined, {
+      identifierPolicy: "off",
+    });
+    expect(instructions).toContain("## Exact identifiers");
+    expect(instructions).not.toContain("preserve literal values exactly as seen");
+  });
+
+  it("threads custom identifier policy text into structured instructions", () => {
+    const instructions = buildCompactionStructureInstructions(undefined, {
+      identifierPolicy: "custom",
+      identifierInstructions: "Exclude secrets and one-time tokens from summaries.",
+    });
+    expect(instructions).toContain("For ## Exact identifiers, follow this policy:");
+    expect(instructions).toContain("Exclude secrets and one-time tokens from summaries.");
   });
 });
 
