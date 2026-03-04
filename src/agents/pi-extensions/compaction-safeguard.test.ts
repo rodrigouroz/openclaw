@@ -1066,7 +1066,7 @@ describe("compaction-safeguard recent-turn preservation", () => {
       preparation: {
         messagesToSummarize: [
           { role: "user", content: "older context", timestamp: 1 },
-          { role: "assistant", content: "older reply", timestamp: 2 } as AgentMessage,
+          { role: "assistant", content: "older reply", timestamp: 2 } as unknown as AgentMessage,
           { role: "user", content: "latest ask status", timestamp: 3 },
           {
             role: "assistant",
@@ -1169,9 +1169,13 @@ describe("compaction-safeguard recent-turn preservation", () => {
       preparation: {
         messagesToSummarize: [
           { role: "user", content: "older context", timestamp: 1 },
-          { role: "assistant", content: "older reply", timestamp: 2 } as AgentMessage,
+          { role: "assistant", content: "older reply", timestamp: 2 } as unknown as AgentMessage,
           { role: "user", content: "latest ask status", timestamp: 3 },
-          { role: "assistant", content: "latest assistant reply", timestamp: 4 } as AgentMessage,
+          {
+            role: "assistant",
+            content: "latest assistant reply",
+            timestamp: 4,
+          } as unknown as AgentMessage,
         ],
         turnPrefixMessages: [],
         firstKeptEntryId: "entry-1",
@@ -1225,7 +1229,7 @@ describe("compaction-safeguard recent-turn preservation", () => {
       preparation: {
         messagesToSummarize: [
           { role: "user", content: "older context", timestamp: 1 },
-          { role: "assistant", content: "older reply", timestamp: 2 } as AgentMessage,
+          { role: "assistant", content: "older reply", timestamp: 2 } as unknown as AgentMessage,
         ],
         turnPrefixMessages: [],
         firstKeptEntryId: "entry-1",
