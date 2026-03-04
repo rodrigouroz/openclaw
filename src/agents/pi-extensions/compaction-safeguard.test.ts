@@ -671,8 +671,9 @@ describe("compaction-safeguard recent-turn preservation", () => {
       identifierPolicy: "off",
     });
     expect(instructions).toContain("## Exact identifiers");
-    expect(instructions).toContain("N/A (identifier policy off)");
+    expect(instructions).toContain("do not enforce literal-preservation rules");
     expect(instructions).not.toContain("preserve literal values exactly as seen");
+    expect(instructions).not.toContain("N/A (identifier policy off)");
   });
 
   it("threads custom identifier policy text into structured instructions", () => {
@@ -754,12 +755,13 @@ describe("compaction-safeguard recent-turn preservation", () => {
     expect(summary).toContain("\n## Open TODOs\n");
   });
 
-  it("uses policy-off marker in fallback exact identifiers section", () => {
+  it("does not force policy-off marker in fallback exact identifiers section", () => {
     const summary = buildStructuredFallbackSummary(undefined, {
       identifierPolicy: "off",
     });
     expect(summary).toContain("## Exact identifiers");
-    expect(summary).toContain("N/A (identifier policy off).");
+    expect(summary).toContain("None captured.");
+    expect(summary).not.toContain("N/A (identifier policy off).");
   });
 
   it("uses structured instructions when summarizing dropped history chunks", async () => {

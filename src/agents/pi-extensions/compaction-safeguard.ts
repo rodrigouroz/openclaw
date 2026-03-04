@@ -47,7 +47,7 @@ const REQUIRED_SUMMARY_SECTIONS = [
 const STRICT_EXACT_IDENTIFIERS_INSTRUCTION =
   "For ## Exact identifiers, preserve literal values exactly as seen (IDs, URLs, file paths, ports, hashes, dates, times).";
 const POLICY_OFF_EXACT_IDENTIFIERS_INSTRUCTION =
-  "For ## Exact identifiers, do not include literal identifiers. Write: N/A (identifier policy off).";
+  "For ## Exact identifiers, include identifiers only when needed for continuity; do not enforce literal-preservation rules.";
 
 type ToolFailure = {
   toolCallId: string;
@@ -484,16 +484,13 @@ function hasRequiredSummarySections(summary: string): boolean {
 
 function buildStructuredFallbackSummary(
   previousSummary: string | undefined,
-  summarizationInstructions?: CompactionSummarizationInstructions,
+  _summarizationInstructions?: CompactionSummarizationInstructions,
 ): string {
   const trimmedPreviousSummary = previousSummary?.trim() ?? "";
   if (trimmedPreviousSummary && hasRequiredSummarySections(trimmedPreviousSummary)) {
     return trimmedPreviousSummary;
   }
-  const exactIdentifiersSummary =
-    summarizationInstructions?.identifierPolicy === "off"
-      ? "N/A (identifier policy off)."
-      : "None captured.";
+  const exactIdentifiersSummary = "None captured.";
   return [
     "## Decisions",
     trimmedPreviousSummary || "No prior history.",
