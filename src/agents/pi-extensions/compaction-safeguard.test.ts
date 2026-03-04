@@ -701,13 +701,14 @@ describe("compaction-safeguard recent-turn preservation", () => {
 
   it("filters ordinary short numbers and trims wrapped punctuation", () => {
     const identifiers = extractOpaqueIdentifiers(
-      "Year 2026 count 42 port 18789 ticket 123456 URL https://example.com/a, path /tmp/x.log, and tiny /a.",
+      "Year 2026 count 42 port 18789 ticket 123456 URL https://example.com/a, path /tmp/x.log, and tiny /a with prose on/off.",
     );
 
     expect(identifiers).not.toContain("2026");
     expect(identifiers).not.toContain("42");
     expect(identifiers).not.toContain("18789");
     expect(identifiers).not.toContain("/a");
+    expect(identifiers).not.toContain("/off");
     expect(identifiers).toContain("123456");
     expect(identifiers).toContain("https://example.com/a");
     expect(identifiers).toContain("/tmp/x.log");
