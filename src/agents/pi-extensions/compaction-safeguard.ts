@@ -476,11 +476,15 @@ function buildCompactionStructureInstructions(
   return `${sectionsTemplate}\n\n${customBlock}`;
 }
 
-function hasRequiredSummarySections(summary: string): boolean {
-  const lines = summary
+function normalizedSummaryLines(summary: string): string[] {
+  return summary
     .split(/\r?\n/u)
     .map((line) => line.trim())
     .filter((line) => line.length > 0);
+}
+
+function hasRequiredSummarySections(summary: string): boolean {
+  const lines = normalizedSummaryLines(summary);
   let cursor = 0;
   for (const heading of REQUIRED_SUMMARY_SECTIONS) {
     const index = lines.findIndex((line, lineIndex) => lineIndex >= cursor && line === heading);
@@ -539,7 +543,7 @@ function sanitizeExtractedIdentifier(value: string): string {
 function extractOpaqueIdentifiers(text: string): string[] {
   const matches =
     text.match(
-      /([A-Fa-f0-9]{8,}|https?:\/\/\S+|\/[\w./-]+|[A-Za-z]:\\[\w\\.-]+|[A-Za-z0-9._-]+\.[A-Za-z0-9._/-]+:\d{1,5}|\b\d{6,}\b)/g,
+      /([A-Fa-f0-9]{8,}|https?:\/\/\S+|\/[\w.-]{2,}(?:\/[\w.-]+)*|[A-Za-z]:\\[\w\\.-]+|[A-Za-z0-9._-]+\.[A-Za-z0-9._/-]+:\d{1,5}|\b\d{6,}\b)/g,
     ) ?? [];
   return Array.from(
     new Set(
@@ -584,16 +588,21 @@ function auditSummaryQuality(params: {
   summary: string;
   identifiers: string[];
   latestAsk: string | null;
+  identifierPolicy?: CompactionSummarizationInstructions["identifierPolicy"];
 }): { ok: boolean; reasons: string[] } {
   const reasons: string[] = [];
+  const lines = new Set(normalizedSummaryLines(params.summary));
   for (const section of REQUIRED_SUMMARY_SECTIONS) {
-    if (!params.summary.includes(section)) {
+    if (!lines.has(section)) {
       reasons.push(`missing_section:${section}`);
     }
   }
-  const missingIdentifiers = params.identifiers.filter((id) => !params.summary.includes(id));
-  if (missingIdentifiers.length > 0) {
-    reasons.push(`missing_identifiers:${missingIdentifiers.slice(0, 3).join(",")}`);
+  const enforceIdentifiers = (params.identifierPolicy ?? "strict") === "strict";
+  if (enforceIdentifiers) {
+    const missingIdentifiers = params.identifiers.filter((id) => !params.summary.includes(id));
+    if (missingIdentifiers.length > 0) {
+      reasons.push(`missing_identifiers:${missingIdentifiers.slice(0, 3).join(",")}`);
+    }
   }
   if (!hasAskOverlap(params.summary, params.latestAsk)) {
     reasons.push("latest_user_ask_not_reflected");
@@ -676,6 +685,7 @@ export default function compactionSafeguardExtension(api: ExtensionAPI): void {
       identifierPolicy: runtime?.identifierPolicy,
       identifierInstructions: runtime?.identifierInstructions,
     };
+    const identifierPolicy = runtime?.identifierPolicy ?? "strict";
     const model = ctx.model ?? runtime?.model;
     if (!model) {
       // Log warning once per session when both models are missing (diagnostic for future issues).
@@ -795,7 +805,7 @@ export default function compactionSafeguardExtension(api: ExtensionAPI): void {
         ...preservedRecentMessages,
         ...turnPrefixMessages,
       ]);
-      const identifierSeedText = [...messagesToSummarize, ...preservedRecentMessages]
+      const identifierSeedText = [...messagesToSummarize, ...turnPrefixMessages]
         .slice(-10)
         .map((message) => extractMessageText(message))
         .filter(Boolean)
@@ -869,14 +879,19 @@ export default function compactionSafeguardExtension(api: ExtensionAPI): void {
           summary,
           identifiers,
           latestAsk: latestUserAsk,
+          identifierPolicy,
         });
         if (quality.ok || attempt >= totalAttempts - 1) {
           break;
         }
         const reasons = quality.reasons.join(", ");
+        const qualityFeedbackInstruction =
+          identifierPolicy === "strict"
+            ? "Fix all issues and include every required section with exact identifiers preserved."
+            : "Fix all issues and include every required section while following the configured identifier policy.";
         const qualityFeedback = wrapUntrustedInstructionBlock(
           "Quality check feedback",
-          `Previous summary failed quality checks (${reasons}). Fix all issues and include every required section with exact identifiers preserved.`,
+          `Previous summary failed quality checks (${reasons}). ${qualityFeedbackInstruction}`,
         );
         currentInstructions = qualityFeedback
           ? `${structuredInstructions}\n\n${qualityFeedback}`

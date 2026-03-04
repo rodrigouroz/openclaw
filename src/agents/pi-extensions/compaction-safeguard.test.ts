@@ -701,12 +701,13 @@ describe("compaction-safeguard recent-turn preservation", () => {
 
   it("filters ordinary short numbers and trims wrapped punctuation", () => {
     const identifiers = extractOpaqueIdentifiers(
-      "Year 2026 count 42 port 18789 ticket 123456 URL https://example.com/a, path /tmp/x.log.",
+      "Year 2026 count 42 port 18789 ticket 123456 URL https://example.com/a, path /tmp/x.log, and tiny /a.",
     );
 
     expect(identifiers).not.toContain("2026");
     expect(identifiers).not.toContain("42");
     expect(identifiers).not.toContain("18789");
+    expect(identifiers).not.toContain("/a");
     expect(identifiers).toContain("123456");
     expect(identifiers).toContain("https://example.com/a");
     expect(identifiers).toContain("/tmp/x.log");
@@ -720,6 +721,71 @@ describe("compaction-safeguard recent-turn preservation", () => {
     });
     expect(quality.ok).toBe(false);
     expect(quality.reasons.length).toBeGreaterThan(0);
+  });
+
+  it("requires exact section headings instead of substring matches", () => {
+    const quality = auditSummaryQuality({
+      summary: [
+        "See ## Decisions above.",
+        "## Open TODOs",
+        "None.",
+        "## Constraints/Rules",
+        "Keep policy.",
+        "## Pending user asks",
+        "Need status.",
+        "## Exact identifiers",
+        "abc12345",
+      ].join("\n"),
+      identifiers: ["abc12345"],
+      latestAsk: "Need status.",
+    });
+
+    expect(quality.ok).toBe(false);
+    expect(quality.reasons).toContain("missing_section:## Decisions");
+  });
+
+  it("does not enforce identifier retention when policy is off", () => {
+    const quality = auditSummaryQuality({
+      summary: [
+        "## Decisions",
+        "Use redacted summary.",
+        "## Open TODOs",
+        "None.",
+        "## Constraints/Rules",
+        "No sensitive identifiers.",
+        "## Pending user asks",
+        "Provide status.",
+        "## Exact identifiers",
+        "Redacted.",
+      ].join("\n"),
+      identifiers: ["sensitive-token-123456"],
+      latestAsk: "Provide status.",
+      identifierPolicy: "off",
+    });
+
+    expect(quality.ok).toBe(true);
+  });
+
+  it("does not force strict identifier retention for custom policy", () => {
+    const quality = auditSummaryQuality({
+      summary: [
+        "## Decisions",
+        "Mask secrets by default.",
+        "## Open TODOs",
+        "None.",
+        "## Constraints/Rules",
+        "Follow custom policy.",
+        "## Pending user asks",
+        "Share summary.",
+        "## Exact identifiers",
+        "Masked by policy.",
+      ].join("\n"),
+      identifiers: ["api-key-abcdef123456"],
+      latestAsk: "Share summary.",
+      identifierPolicy: "custom",
+    });
+
+    expect(quality.ok).toBe(true);
   });
 
   it("clamps quality-guard retries into a safe range", () => {
