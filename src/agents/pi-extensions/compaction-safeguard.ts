@@ -5,6 +5,7 @@ import type { ExtensionAPI, FileOperations } from "@mariozechner/pi-coding-agent
 import { extractSections } from "../../auto-reply/reply/post-compaction-context.js";
 import { openBoundaryFile } from "../../infra/boundary-file-read.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
+import { isQueryStopWordToken } from "../../memory/query-expansion.js";
 import {
   BASE_CHUNK_RATIO,
   type CompactionSummarizationInstructions,
@@ -42,40 +43,6 @@ const MAX_EXTRACTED_IDENTIFIERS = 12;
 const MAX_UNTRUSTED_INSTRUCTION_CHARS = 4000;
 const MAX_ASK_OVERLAP_TOKENS = 12;
 const MIN_ASK_OVERLAP_TOKENS_FOR_DOUBLE_MATCH = 3;
-const ASK_OVERLAP_STOPWORDS = new Set<string>([
-  "a",
-  "an",
-  "and",
-  "are",
-  "as",
-  "at",
-  "be",
-  "but",
-  "by",
-  "for",
-  "from",
-  "if",
-  "in",
-  "into",
-  "is",
-  "it",
-  "of",
-  "on",
-  "or",
-  "so",
-  "that",
-  "the",
-  "their",
-  "then",
-  "there",
-  "these",
-  "this",
-  "to",
-  "was",
-  "we",
-  "with",
-  "you",
-]);
 const REQUIRED_SUMMARY_SECTIONS = [
   "## Decisions",
   "## Open TODOs",
@@ -623,7 +590,7 @@ function hasAskOverlap(summary: string, latestAsk: string | null): boolean {
     if (token.length <= 1) {
       return false;
     }
-    if (ASK_OVERLAP_STOPWORDS.has(token)) {
+    if (isQueryStopWordToken(token)) {
       return false;
     }
     return true;
