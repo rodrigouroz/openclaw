@@ -788,6 +788,28 @@ describe("compaction-safeguard recent-turn preservation", () => {
     expect(quality.ok).toBe(true);
   });
 
+  it("flags missing non-latin latest asks when summary omits them", () => {
+    const quality = auditSummaryQuality({
+      summary: [
+        "## Decisions",
+        "Keep current flow.",
+        "## Open TODOs",
+        "None.",
+        "## Constraints/Rules",
+        "Preserve safety checks.",
+        "## Pending user asks",
+        "No pending asks.",
+        "## Exact identifiers",
+        "None.",
+      ].join("\n"),
+      identifiers: [],
+      latestAsk: "请提供状态更新",
+    });
+
+    expect(quality.ok).toBe(false);
+    expect(quality.reasons).toContain("latest_user_ask_not_reflected");
+  });
+
   it("clamps quality-guard retries into a safe range", () => {
     expect(resolveQualityGuardMaxRetries(undefined)).toBe(1);
     expect(resolveQualityGuardMaxRetries(-1)).toBe(0);
@@ -959,6 +981,96 @@ describe("compaction-safeguard recent-turn preservation", () => {
     );
     expect(droppedCall?.customInstructions).toContain("## Decisions");
     expect(droppedCall?.customInstructions).toContain("Keep security caveats.");
+  });
+
+  it("retries when generated summary misses headings even if preserved turns contain them", async () => {
+    mockSummarizeInStages.mockReset();
+    mockSummarizeInStages
+      .mockResolvedValueOnce("latest ask status")
+      .mockResolvedValueOnce(
+        [
+          "## Decisions",
+          "Keep current flow.",
+          "## Open TODOs",
+          "None.",
+          "## Constraints/Rules",
+          "Follow rules.",
+          "## Pending user asks",
+          "latest ask status",
+          "## Exact identifiers",
+          "None.",
+        ].join("\n"),
+      );
+
+    const sessionManager = stubSessionManager();
+    const model = createAnthropicModelFixture();
+    setCompactionSafeguardRuntime(sessionManager, {
+      model,
+      recentTurnsPreserve: 1,
+      qualityGuardEnabled: true,
+      qualityGuardMaxRetries: 1,
+    });
+
+    const compactionHandler = createCompactionHandler();
+    const getApiKeyMock = vi.fn().mockResolvedValue("test-key");
+    const mockContext = createCompactionContext({
+      sessionManager,
+      getApiKeyMock,
+    });
+    const event = {
+      preparation: {
+        messagesToSummarize: [
+          { role: "user", content: "older context", timestamp: 1 },
+          { role: "assistant", content: "older reply", timestamp: 2 } as AgentMessage,
+          { role: "user", content: "latest ask status", timestamp: 3 },
+          {
+            role: "assistant",
+            content: [
+              {
+                type: "text",
+                text: [
+                  "## Decisions",
+                  "from preserved turns",
+                  "## Open TODOs",
+                  "from preserved turns",
+                  "## Constraints/Rules",
+                  "from preserved turns",
+                  "## Pending user asks",
+                  "from preserved turns",
+                  "## Exact identifiers",
+                  "from preserved turns",
+                ].join("\n"),
+              },
+            ],
+            timestamp: 4,
+          } as unknown as AgentMessage,
+        ],
+        turnPrefixMessages: [],
+        firstKeptEntryId: "entry-1",
+        tokensBefore: 1_500,
+        fileOps: {
+          read: [],
+          edited: [],
+          written: [],
+        },
+        settings: { reserveTokens: 4_000 },
+        previousSummary: undefined,
+        isSplitTurn: false,
+      },
+      customInstructions: "",
+      signal: new AbortController().signal,
+    };
+
+    const result = (await compactionHandler(event, mockContext)) as {
+      cancel?: boolean;
+      compaction?: { summary?: string };
+    };
+
+    expect(result.cancel).not.toBe(true);
+    expect(mockSummarizeInStages).toHaveBeenCalledTimes(2);
+    const secondCall = mockSummarizeInStages.mock.calls[1]?.[0];
+    expect(secondCall?.customInstructions).toContain("Quality check feedback");
+    expect(secondCall?.customInstructions).toContain("missing_section:## Decisions");
   });
 
   it("keeps required headings when all turns are preserved and history is carried forward", async () => {

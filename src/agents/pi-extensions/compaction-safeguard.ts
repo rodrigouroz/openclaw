@@ -572,11 +572,13 @@ function hasAskOverlap(summary: string, latestAsk: string | null): boolean {
   if (!latestAsk) {
     return true;
   }
-  const normalizedSummary = summary.toLowerCase();
+  const normalizedSummary = summary.toLocaleLowerCase().normalize("NFKC");
   const tokens = latestAsk
-    .toLowerCase()
-    .split(/[^a-z0-9]+/g)
-    .filter((token) => token.length >= 5)
+    .toLocaleLowerCase()
+    .normalize("NFKC")
+    .split(/[^\p{L}\p{N}]+/u)
+    .map((token) => token.trim())
+    .filter((token) => token.length > 0)
     .slice(0, 8);
   if (tokens.length === 0) {
     return true;
@@ -848,7 +850,7 @@ export default function compactionSafeguardExtension(api: ExtensionAPI): void {
               })
             : buildStructuredFallbackSummary(effectivePreviousSummary, summarizationInstructions);
 
-        summary = historySummary;
+        let summaryWithoutPreservedTurns = historySummary;
         if (preparation.isSplitTurn && turnPrefixMessages.length > 0) {
           const prefixSummary = await summarizeInStages({
             messages: turnPrefixMessages,
@@ -863,24 +865,29 @@ export default function compactionSafeguardExtension(api: ExtensionAPI): void {
             previousSummary: undefined,
           });
           const splitTurnSection = `**Turn Context (split turn):**\n\n${prefixSummary}`;
-          summary = historySummary.trim()
+          summaryWithoutPreservedTurns = historySummary.trim()
             ? `${historySummary}\n\n---\n\n${splitTurnSection}`
             : splitTurnSection;
         }
-        summary = appendSummarySection(summary, preservedTurnsSection);
+        const summaryWithPreservedTurns = appendSummarySection(
+          summaryWithoutPreservedTurns,
+          preservedTurnsSection,
+        );
 
         const canRegenerate =
           messagesToSummarize.length > 0 ||
           (preparation.isSplitTurn && turnPrefixMessages.length > 0);
         if (!qualityGuardEnabled || !canRegenerate) {
+          summary = summaryWithPreservedTurns;
           break;
         }
         const quality = auditSummaryQuality({
-          summary,
+          summary: summaryWithoutPreservedTurns,
           identifiers,
           latestAsk: latestUserAsk,
           identifierPolicy,
         });
+        summary = summaryWithPreservedTurns;
         if (quality.ok || attempt >= totalAttempts - 1) {
           break;
         }
