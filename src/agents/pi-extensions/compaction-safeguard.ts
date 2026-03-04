@@ -779,7 +779,7 @@ export default function compactionSafeguardExtension(api: ExtensionAPI): void {
       const turnPrefixMessages = preparation.turnPrefixMessages ?? [];
       let messagesToSummarize = preparation.messagesToSummarize;
       const recentTurnsPreserve = resolveRecentTurnsPreserve(runtime?.recentTurnsPreserve);
-      const qualityGuardEnabled = runtime?.qualityGuardEnabled ?? true;
+      const qualityGuardEnabled = runtime?.qualityGuardEnabled ?? false;
       const qualityGuardMaxRetries = resolveQualityGuardMaxRetries(runtime?.qualityGuardMaxRetries);
       const structuredInstructions = buildCompactionStructureInstructions(
         customInstructions,
@@ -972,13 +972,13 @@ export default function compactionSafeguardExtension(api: ExtensionAPI): void {
           identifierPolicy === "strict"
             ? "Fix all issues and include every required section with exact identifiers preserved."
             : "Fix all issues and include every required section while following the configured identifier policy.";
-        const qualityFeedback = wrapUntrustedInstructionBlock(
+        const qualityFeedbackReasons = wrapUntrustedInstructionBlock(
           "Quality check feedback",
-          `Previous summary failed quality checks (${reasons}). ${qualityFeedbackInstruction}`,
+          `Previous summary failed quality checks (${reasons}).`,
         );
-        currentInstructions = qualityFeedback
-          ? `${structuredInstructions}\n\n${qualityFeedback}`
-          : `${structuredInstructions}\n\nPrevious summary failed quality checks (${reasons}).`;
+        currentInstructions = qualityFeedbackReasons
+          ? `${structuredInstructions}\n\n${qualityFeedbackInstruction}\n\n${qualityFeedbackReasons}`
+          : `${structuredInstructions}\n\n${qualityFeedbackInstruction}`;
       }
 
       summary = appendSummarySection(summary, toolFailureSection);
