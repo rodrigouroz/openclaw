@@ -40,6 +40,42 @@ const MAX_QUALITY_GUARD_MAX_RETRIES = 3;
 const MAX_RECENT_TURN_TEXT_CHARS = 600;
 const MAX_EXTRACTED_IDENTIFIERS = 12;
 const MAX_UNTRUSTED_INSTRUCTION_CHARS = 4000;
+const MAX_ASK_OVERLAP_TOKENS = 12;
+const MIN_ASK_OVERLAP_TOKENS_FOR_DOUBLE_MATCH = 3;
+const ASK_OVERLAP_STOPWORDS = new Set<string>([
+  "a",
+  "an",
+  "and",
+  "are",
+  "as",
+  "at",
+  "be",
+  "but",
+  "by",
+  "for",
+  "from",
+  "if",
+  "in",
+  "into",
+  "is",
+  "it",
+  "of",
+  "on",
+  "or",
+  "so",
+  "that",
+  "the",
+  "their",
+  "then",
+  "there",
+  "these",
+  "this",
+  "to",
+  "was",
+  "we",
+  "with",
+  "you",
+]);
 const REQUIRED_SUMMARY_SECTIONS = [
   "## Decisions",
   "## Open TODOs",
@@ -568,22 +604,48 @@ function extractLatestUserAsk(messages: AgentMessage[]): string | null {
   return null;
 }
 
-function hasAskOverlap(summary: string, latestAsk: string | null): boolean {
-  if (!latestAsk) {
-    return true;
-  }
-  const normalizedSummary = summary.toLocaleLowerCase().normalize("NFKC");
-  const tokens = latestAsk
+function tokenizeAskOverlapText(text: string): string[] {
+  return text
     .toLocaleLowerCase()
     .normalize("NFKC")
     .split(/[^\p{L}\p{N}]+/u)
     .map((token) => token.trim())
-    .filter((token) => token.length > 0)
-    .slice(0, 8);
-  if (tokens.length === 0) {
+    .filter((token) => token.length > 0);
+}
+
+function hasAskOverlap(summary: string, latestAsk: string | null): boolean {
+  if (!latestAsk) {
     return true;
   }
-  return tokens.some((token) => normalizedSummary.includes(token));
+  const askTokens = Array.from(new Set(tokenizeAskOverlapText(latestAsk))).slice(
+    0,
+    MAX_ASK_OVERLAP_TOKENS,
+  );
+  if (askTokens.length === 0) {
+    return true;
+  }
+  const meaningfulAskTokens = askTokens.filter((token) => {
+    if (token.length <= 1) {
+      return false;
+    }
+    if (ASK_OVERLAP_STOPWORDS.has(token)) {
+      return false;
+    }
+    return true;
+  });
+  const tokensToCheck = meaningfulAskTokens.length > 0 ? meaningfulAskTokens : askTokens;
+  if (tokensToCheck.length === 0) {
+    return true;
+  }
+  const summaryTokens = new Set(tokenizeAskOverlapText(summary));
+  let overlapCount = 0;
+  for (const token of tokensToCheck) {
+    if (summaryTokens.has(token)) {
+      overlapCount += 1;
+    }
+  }
+  const requiredMatches = tokensToCheck.length >= MIN_ASK_OVERLAP_TOKENS_FOR_DOUBLE_MATCH ? 2 : 1;
+  return overlapCount >= requiredMatches;
 }
 
 function auditSummaryQuality(params: {
@@ -828,47 +890,65 @@ export default function compactionSafeguardExtension(api: ExtensionAPI): void {
       let summary = "";
       let currentInstructions = structuredInstructions;
       const totalAttempts = qualityGuardEnabled ? qualityGuardMaxRetries + 1 : 1;
+      let lastSuccessfulSummary: string | null = null;
 
       for (let attempt = 0; attempt < totalAttempts; attempt += 1) {
-        const historySummary =
-          messagesToSummarize.length > 0
-            ? await summarizeInStages({
-                messages: messagesToSummarize,
-                model,
-                apiKey,
-                signal,
-                reserveTokens,
-                maxChunkTokens,
-                contextWindow: contextWindowTokens,
-                customInstructions: currentInstructions,
-                summarizationInstructions,
-                previousSummary: effectivePreviousSummary,
-              })
-            : buildStructuredFallbackSummary(effectivePreviousSummary, summarizationInstructions);
+        let summaryWithoutPreservedTurns = "";
+        let summaryWithPreservedTurns = "";
+        try {
+          const historySummary =
+            messagesToSummarize.length > 0
+              ? await summarizeInStages({
+                  messages: messagesToSummarize,
+                  model,
+                  apiKey,
+                  signal,
+                  reserveTokens,
+                  maxChunkTokens,
+                  contextWindow: contextWindowTokens,
+                  customInstructions: currentInstructions,
+                  summarizationInstructions,
+                  previousSummary: effectivePreviousSummary,
+                })
+              : buildStructuredFallbackSummary(effectivePreviousSummary, summarizationInstructions);
 
-        let summaryWithoutPreservedTurns = historySummary;
-        if (preparation.isSplitTurn && turnPrefixMessages.length > 0) {
-          const prefixSummary = await summarizeInStages({
-            messages: turnPrefixMessages,
-            model,
-            apiKey,
-            signal,
-            reserveTokens,
-            maxChunkTokens,
-            contextWindow: contextWindowTokens,
-            customInstructions: `${TURN_PREFIX_INSTRUCTIONS}\n\n${currentInstructions}`,
-            summarizationInstructions,
-            previousSummary: undefined,
-          });
-          const splitTurnSection = `**Turn Context (split turn):**\n\n${prefixSummary}`;
-          summaryWithoutPreservedTurns = historySummary.trim()
-            ? `${historySummary}\n\n---\n\n${splitTurnSection}`
-            : splitTurnSection;
+          summaryWithoutPreservedTurns = historySummary;
+          if (preparation.isSplitTurn && turnPrefixMessages.length > 0) {
+            const prefixSummary = await summarizeInStages({
+              messages: turnPrefixMessages,
+              model,
+              apiKey,
+              signal,
+              reserveTokens,
+              maxChunkTokens,
+              contextWindow: contextWindowTokens,
+              customInstructions: `${TURN_PREFIX_INSTRUCTIONS}\n\n${currentInstructions}`,
+              summarizationInstructions,
+              previousSummary: undefined,
+            });
+            const splitTurnSection = `**Turn Context (split turn):**\n\n${prefixSummary}`;
+            summaryWithoutPreservedTurns = historySummary.trim()
+              ? `${historySummary}\n\n---\n\n${splitTurnSection}`
+              : splitTurnSection;
+          }
+          summaryWithPreservedTurns = appendSummarySection(
+            summaryWithoutPreservedTurns,
+            preservedTurnsSection,
+          );
+        } catch (attemptError) {
+          if (lastSuccessfulSummary && attempt > 0) {
+            log.warn(
+              `Compaction safeguard: quality retry failed on attempt ${attempt + 1}; ` +
+                `keeping last successful summary: ${
+                  attemptError instanceof Error ? attemptError.message : String(attemptError)
+                }`,
+            );
+            summary = lastSuccessfulSummary;
+            break;
+          }
+          throw attemptError;
         }
-        const summaryWithPreservedTurns = appendSummarySection(
-          summaryWithoutPreservedTurns,
-          preservedTurnsSection,
-        );
+        lastSuccessfulSummary = summaryWithPreservedTurns;
 
         const canRegenerate =
           messagesToSummarize.length > 0 ||

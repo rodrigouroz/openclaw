@@ -811,6 +811,50 @@ describe("compaction-safeguard recent-turn preservation", () => {
     expect(quality.reasons).toContain("latest_user_ask_not_reflected");
   });
 
+  it("rejects latest-ask overlap when only stopwords overlap", () => {
+    const quality = auditSummaryQuality({
+      summary: [
+        "## Decisions",
+        "Keep current flow.",
+        "## Open TODOs",
+        "None.",
+        "## Constraints/Rules",
+        "Follow policy.",
+        "## Pending user asks",
+        "This is to track active asks.",
+        "## Exact identifiers",
+        "None.",
+      ].join("\n"),
+      identifiers: [],
+      latestAsk: "What is the plan to migrate?",
+    });
+
+    expect(quality.ok).toBe(false);
+    expect(quality.reasons).toContain("latest_user_ask_not_reflected");
+  });
+
+  it("requires more than one meaningful overlap token for detailed asks", () => {
+    const quality = auditSummaryQuality({
+      summary: [
+        "## Decisions",
+        "Keep current flow.",
+        "## Open TODOs",
+        "None.",
+        "## Constraints/Rules",
+        "Follow policy.",
+        "## Pending user asks",
+        "Password issue tracked.",
+        "## Exact identifiers",
+        "None.",
+      ].join("\n"),
+      identifiers: [],
+      latestAsk: "Please reset account password now",
+    });
+
+    expect(quality.ok).toBe(false);
+    expect(quality.reasons).toContain("latest_user_ask_not_reflected");
+  });
+
   it("clamps quality-guard retries into a safe range", () => {
     expect(resolveQualityGuardMaxRetries(undefined)).toBe(1);
     expect(resolveQualityGuardMaxRetries(-1)).toBe(0);
@@ -1154,6 +1198,59 @@ describe("compaction-safeguard recent-turn preservation", () => {
     expect(mockSummarizeInStages).toHaveBeenCalledTimes(2);
     const secondCall = mockSummarizeInStages.mock.calls[1]?.[0];
     expect(secondCall?.customInstructions).toContain("latest_user_ask_not_reflected");
+  });
+
+  it("keeps last successful summary when a quality retry call fails", async () => {
+    mockSummarizeInStages.mockReset();
+    mockSummarizeInStages
+      .mockResolvedValueOnce("short summary missing headings")
+      .mockRejectedValueOnce(new Error("retry transient failure"));
+
+    const sessionManager = stubSessionManager();
+    const model = createAnthropicModelFixture();
+    setCompactionSafeguardRuntime(sessionManager, {
+      model,
+      recentTurnsPreserve: 0,
+      qualityGuardEnabled: true,
+      qualityGuardMaxRetries: 1,
+    });
+
+    const compactionHandler = createCompactionHandler();
+    const getApiKeyMock = vi.fn().mockResolvedValue("test-key");
+    const mockContext = createCompactionContext({
+      sessionManager,
+      getApiKeyMock,
+    });
+    const event = {
+      preparation: {
+        messagesToSummarize: [
+          { role: "user", content: "older context", timestamp: 1 },
+          { role: "assistant", content: "older reply", timestamp: 2 } as AgentMessage,
+        ],
+        turnPrefixMessages: [],
+        firstKeptEntryId: "entry-1",
+        tokensBefore: 1_500,
+        fileOps: {
+          read: [],
+          edited: [],
+          written: [],
+        },
+        settings: { reserveTokens: 4_000 },
+        previousSummary: undefined,
+        isSplitTurn: false,
+      },
+      customInstructions: "",
+      signal: new AbortController().signal,
+    };
+
+    const result = (await compactionHandler(event, mockContext)) as {
+      cancel?: boolean;
+      compaction?: { summary?: string };
+    };
+
+    expect(result.cancel).not.toBe(true);
+    expect(result.compaction?.summary).toContain("short summary missing headings");
+    expect(mockSummarizeInStages).toHaveBeenCalledTimes(2);
   });
 
   it("keeps required headings when all turns are preserved and history is carried forward", async () => {
