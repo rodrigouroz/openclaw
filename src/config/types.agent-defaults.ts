@@ -308,8 +308,6 @@ export type AgentCompactionConfig = {
   maxHistoryShare?: number;
   /** Preserve this many most-recent user/assistant turns verbatim in compaction summary context. */
   recentTurnsPreserve?: number;
-  /** Post-compaction memory session-index sync behavior. */
-  postIndexSync?: "off" | "async" | "await";
   /** Identifier-preservation instruction policy for compaction summaries. */
   identifierPolicy?: AgentCompactionIdentifierPolicy;
   /** Custom identifier-preservation instructions used when identifierPolicy is "custom". */

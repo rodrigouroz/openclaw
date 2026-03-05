@@ -1001,8 +1001,6 @@ export const FIELD_HELP: Record<string, string> = {
     'Custom identifier-preservation instruction text used when identifierPolicy="custom". Keep this explicit and safety-focused so compaction summaries do not rewrite opaque IDs, URLs, hosts, or ports.',
   "agents.defaults.compaction.recentTurnsPreserve":
     "Number of most recent user/assistant turns kept verbatim outside safeguard summarization (default: 3). Raise this to preserve exact recent dialogue context, or lower it to maximize compaction savings.",
-  "agents.defaults.compaction.postIndexSync":
-    'Controls post-compaction session index sync mode: "off", "async", or "await" (default: "async"). Use "await" for strongest consistency, "async" for lower latency, and "off" only when downstream indexing is externally managed.',
   "agents.defaults.compaction.qualityGuard":
     "Optional quality-audit retry settings for safeguard compaction summaries. Leave this disabled unless you explicitly want summary audits and one-shot regeneration on failed checks.",
   "agents.defaults.compaction.qualityGuard.enabled":

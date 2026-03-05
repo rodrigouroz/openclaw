@@ -96,9 +96,6 @@ export const AgentDefaultsSchema = z
           .optional(),
         identifierInstructions: z.string().optional(),
         recentTurnsPreserve: z.number().int().min(0).max(12).optional(),
-        postIndexSync: z
-          .union([z.literal("off"), z.literal("async"), z.literal("await")])
-          .optional(),
         qualityGuard: z
           .object({
             enabled: z.boolean().optional(),
