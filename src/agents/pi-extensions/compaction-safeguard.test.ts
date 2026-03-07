@@ -406,7 +406,7 @@ describe("compaction-safeguard runtime registry", () => {
     });
   });
 
-  it("wires quality guard retries from config and clamps safeguard runtime usage", () => {
+  it("wires oversized safeguard runtime values when config validation is bypassed", () => {
     const sessionManager = {} as unknown as Parameters<
       typeof buildEmbeddedExtensionFactories
     >[0]["sessionManager"];
