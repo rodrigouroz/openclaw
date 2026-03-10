@@ -459,9 +459,15 @@ export async function createAcpClient(opts: AcpClientOptions = {}): Promise<AcpC
   const serverCommand = opts.serverCommand ?? (entryPath ? process.execPath : "openclaw");
   const effectiveArgs = opts.serverCommand || !entryPath ? serverArgs : [entryPath, ...serverArgs];
   const { getActiveSkillEnvKeys } = await import("../agents/skills/env-overrides.runtime.js");
-  const spawnEnv = resolveAcpClientSpawnEnv(process.env, {
-    stripKeys: getActiveSkillEnvKeys(),
-  });
+  const { listKnownProviderEnvApiKeyNames } = await import("../agents/model-auth-env-vars.js");
+  const stripKeys = new Set(getActiveSkillEnvKeys());
+  // Strip provider API keys so they don't leak to ACP child processes.
+  // Without this, env vars like OPENAI_API_KEY cause Codex CLI to overwrite
+  // its OAuth credentials in ~/.codex/auth.json with apikey mode.
+  for (const key of listKnownProviderEnvApiKeyNames()) {
+    stripKeys.add(key);
+  }
+  const spawnEnv = resolveAcpClientSpawnEnv(process.env, { stripKeys });
   const spawnInvocation = resolveAcpClientSpawnInvocation(
     { serverCommand, serverArgs: effectiveArgs },
     {
