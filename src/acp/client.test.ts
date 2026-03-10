@@ -4,6 +4,7 @@ import type { RequestPermissionRequest } from "@agentclientprotocol/sdk";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createTrackedTempDirs } from "../test-utils/tracked-temp-dirs.js";
 import {
+  buildAcpClientStripKeys,
   resolveAcpClientSpawnEnv,
   resolveAcpClientSpawnInvocation,
   resolvePermissionRequest,
@@ -156,6 +157,31 @@ describe("shouldStripProviderAuthEnvVarsForAcpServer", () => {
 
   it("preserves provider auth env vars for explicit custom ACP servers", () => {
     expect(shouldStripProviderAuthEnvVarsForAcpServer("custom-acp-server")).toBe(false);
+  });
+});
+
+describe("buildAcpClientStripKeys", () => {
+  it("always includes active skill env keys", () => {
+    const stripKeys = buildAcpClientStripKeys({
+      serverCommand: "custom-acp-server",
+      activeSkillEnvKeys: ["SKILL_SECRET", "OPENAI_API_KEY"],
+    });
+
+    expect(stripKeys.has("SKILL_SECRET")).toBe(true);
+    expect(stripKeys.has("OPENAI_API_KEY")).toBe(true);
+    expect(stripKeys.has("GITHUB_TOKEN")).toBe(false);
+  });
+
+  it("adds provider auth env vars for the default bridge", () => {
+    const stripKeys = buildAcpClientStripKeys({
+      activeSkillEnvKeys: ["SKILL_SECRET"],
+    });
+
+    expect(stripKeys.has("SKILL_SECRET")).toBe(true);
+    expect(stripKeys.has("OPENAI_API_KEY")).toBe(true);
+    expect(stripKeys.has("GITHUB_TOKEN")).toBe(true);
+    expect(stripKeys.has("HF_TOKEN")).toBe(true);
+    expect(stripKeys.has("OPENCLAW_API_KEY")).toBe(false);
   });
 });
 

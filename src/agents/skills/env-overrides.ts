@@ -20,12 +20,10 @@ type ActiveSkillEnvEntry = {
 /**
  * Tracks env var keys that are currently injected by skill overrides.
  * Used by ACP harness spawn to strip skill-injected keys so they don't
- * leak to child processes (e.g., OPENAI_API_KEY leaking to Codex CLI).
- * @see https://github.com/openclaw/openclaw/issues/36280
+ * leak to child processes.
  */
 const activeSkillEnvEntries = new Map<string, ActiveSkillEnvEntry>();
 
-/** Returns a snapshot of env var keys currently injected by skill overrides. */
 export function getActiveSkillEnvKeys(): ReadonlySet<string> {
   return new Set(activeSkillEnvEntries.keys());
 }
