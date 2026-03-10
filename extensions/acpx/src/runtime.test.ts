@@ -166,7 +166,7 @@ describe("AcpxRuntime", () => {
     for await (const _event of runtime.runTurn({
       handle,
       text: "describe this image",
-      attachments: [{ mediaType: "image/png", data: "aW1hZ2UtYnl0ZXM=" }],
+      attachments: [{ mediaType: "image/png", data: "aW1hZ2UtYnl0ZXM=" }], // pragma: allowlist secret
       mode: "prompt",
       requestId: "req-image",
     })) {
@@ -188,8 +188,8 @@ describe("AcpxRuntime", () => {
   });
 
   it("preserves provider auth env vars when runtime uses a custom acpx command", async () => {
-    vi.stubEnv("OPENAI_API_KEY", "openai-secret");
-    vi.stubEnv("GITHUB_TOKEN", "gh-secret");
+    vi.stubEnv("OPENAI_API_KEY", "openai-secret"); // pragma: allowlist secret
+    vi.stubEnv("GITHUB_TOKEN", "gh-secret"); // pragma: allowlist secret
 
     const { runtime, logPath } = await createMockRuntimeFixture();
     const handle = await runtime.ensureSession({
@@ -425,7 +425,7 @@ describe("AcpxRuntime", () => {
             command: "npx",
             args: ["-y", "mcp-remote@latest", "https://mcp.canva.com/mcp"],
             env: {
-              CANVA_TOKEN: "secret",
+              CANVA_TOKEN: "secret", // pragma: allowlist secret
             },
           },
         },
