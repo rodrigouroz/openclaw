@@ -136,9 +136,23 @@ export function spawnWithResolvedCommand(
     options,
   );
 
+  // Strip provider API keys from child environment to prevent ACP agents
+  // (e.g. Codex CLI) from inheriting credentials they shouldn't use.
+  // Without this, leaked OPENAI_API_KEY causes Codex to overwrite its
+  // OAuth config in ~/.codex/auth.json with apikey mode.
+  const childEnv: Record<string, string | undefined> = {
+    ...process.env,
+    OPENCLAW_SHELL: "acp",
+  };
+  for (const key of Object.keys(childEnv)) {
+    if (key.endsWith("_API_KEY") && key !== "OPENCLAW_API_KEY") {
+      delete childEnv[key];
+    }
+  }
+
   return spawn(resolved.command, resolved.args, {
     cwd: params.cwd,
-    env: { ...process.env, OPENCLAW_SHELL: "acp" },
+    env: childEnv,
     stdio: ["pipe", "pipe", "pipe"],
     shell: resolved.shell,
     windowsHide: resolved.windowsHide,
