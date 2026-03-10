@@ -2,13 +2,13 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { runAcpRuntimeAdapterContract } from "../../../src/acp/runtime/adapter-contract.testkit.js";
+import { AcpxRuntime, decodeAcpxRuntimeHandleState } from "./runtime.js";
 import {
   cleanupMockRuntimeFixtures,
   createMockRuntimeFixture,
   NOOP_LOGGER,
   readMockRuntimeLogEntries,
-} from "./runtime-internals/test-fixtures.js";
-import { AcpxRuntime, decodeAcpxRuntimeHandleState } from "./runtime.js";
+} from "./test-utils/runtime-fixtures.js";
 
 let sharedFixture: Awaited<ReturnType<typeof createMockRuntimeFixture>> | null = null;
 let missingCommandRuntime: AcpxRuntime | null = null;
@@ -19,7 +19,6 @@ beforeAll(async () => {
     {
       command: "/definitely/missing/acpx",
       allowPluginLocalInstall: false,
-      stripProviderAuthEnvVarsFromChildren: false,
       installCommand: "n/a",
       cwd: process.cwd(),
       permissionMode: "approve-reads",
@@ -191,29 +190,34 @@ describe("AcpxRuntime", () => {
     vi.stubEnv("OPENAI_API_KEY", "openai-secret"); // pragma: allowlist secret
     vi.stubEnv("GITHUB_TOKEN", "gh-secret"); // pragma: allowlist secret
 
-    const { runtime, logPath } = await createMockRuntimeFixture();
-    const handle = await runtime.ensureSession({
-      sessionKey: "agent:codex:acp:custom-env",
-      agent: "codex",
-      mode: "persistent",
-    });
+    try {
+      const { runtime, logPath } = await createMockRuntimeFixture();
+      const handle = await runtime.ensureSession({
+        sessionKey: "agent:codex:acp:custom-env",
+        agent: "codex",
+        mode: "persistent",
+      });
 
-    for await (const _event of runtime.runTurn({
-      handle,
-      text: "custom-env",
-      mode: "prompt",
-      requestId: "req-custom-env",
-    })) {
-      // Drain events; assertions inspect the mock runtime log.
+      for await (const _event of runtime.runTurn({
+        handle,
+        text: "custom-env",
+        mode: "prompt",
+        requestId: "req-custom-env",
+      })) {
+        // Drain events; assertions inspect the mock runtime log.
+      }
+
+      const logs = await readMockRuntimeLogEntries(logPath);
+      const prompt = logs.find(
+        (entry) =>
+          entry.kind === "prompt" &&
+          String(entry.sessionName ?? "") === "agent:codex:acp:custom-env",
+      );
+      expect(prompt?.openaiApiKey).toBe("openai-secret");
+      expect(prompt?.githubToken).toBe("gh-secret");
+    } finally {
+      vi.unstubAllEnvs();
     }
-
-    const logs = await readMockRuntimeLogEntries(logPath);
-    const prompt = logs.find(
-      (entry) =>
-        entry.kind === "prompt" && String(entry.sessionName ?? "") === "agent:codex:acp:custom-env",
-    );
-    expect(prompt?.openaiApiKey).toBe("openai-secret");
-    expect(prompt?.githubToken).toBe("gh-secret");
   });
 
   it("preserves leading spaces across streamed text deltas", async () => {

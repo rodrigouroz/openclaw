@@ -183,7 +183,7 @@ export class AcpxRuntime implements AcpRuntime {
           command: this.config.command,
           args: ["--help"],
           cwd: this.config.cwd,
-          stripProviderAuthEnvVars: this.config.stripProviderAuthEnvVarsFromChildren,
+          stripProviderAuthEnvVars: this.config.allowPluginLocalInstall,
         },
         this.spawnCommandOptions,
       );
@@ -310,7 +310,7 @@ export class AcpxRuntime implements AcpRuntime {
         command: this.config.command,
         args,
         cwd: state.cwd,
-        stripProviderAuthEnvVars: this.config.stripProviderAuthEnvVarsFromChildren,
+        stripProviderAuthEnvVars: this.config.allowPluginLocalInstall,
       },
       this.spawnCommandOptions,
     );
@@ -707,7 +707,7 @@ export class AcpxRuntime implements AcpRuntime {
         command: this.config.command,
         args: params.args,
         cwd: params.cwd,
-        stripProviderAuthEnvVars: this.config.stripProviderAuthEnvVarsFromChildren,
+        stripProviderAuthEnvVars: this.config.allowPluginLocalInstall,
       },
       this.spawnCommandOptions,
       {

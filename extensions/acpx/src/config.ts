@@ -47,7 +47,6 @@ export type ResolvedAcpxPluginConfig = {
   command: string;
   expectedVersion?: string;
   allowPluginLocalInstall: boolean;
-  stripProviderAuthEnvVarsFromChildren: boolean;
   installCommand: string;
   cwd: string;
   permissionMode: AcpxPermissionMode;
@@ -333,7 +332,6 @@ export function resolveAcpxPluginConfig(params: {
     workspaceDir: params.workspaceDir,
   });
   const allowPluginLocalInstall = command === ACPX_BUNDLED_BIN;
-  const stripProviderAuthEnvVarsFromChildren = allowPluginLocalInstall;
   const configuredExpectedVersion = normalized.expectedVersion;
   const expectedVersion =
     configuredExpectedVersion === ACPX_VERSION_ANY
@@ -345,7 +343,6 @@ export function resolveAcpxPluginConfig(params: {
     command,
     expectedVersion,
     allowPluginLocalInstall,
-    stripProviderAuthEnvVarsFromChildren,
     installCommand,
     cwd,
     permissionMode: normalized.permissionMode ?? DEFAULT_PERMISSION_MODE,
