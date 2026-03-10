@@ -7,10 +7,9 @@ import {
   resolveAcpClientSpawnEnv,
   resolveAcpClientSpawnInvocation,
   resolvePermissionRequest,
+  shouldStripProviderAuthEnvVarsForAcpServer,
 } from "./client.js";
 import { extractAttachmentsFromPrompt, extractTextFromPrompt } from "./event-mapper.js";
-
-const envVar = (...parts: string[]) => parts.join("_");
 
 function makePermissionRequest(
   overrides: Partial<RequestPermissionRequest> = {},
@@ -63,52 +62,50 @@ describe("resolveAcpClientSpawnEnv", () => {
     expect(env.OPENCLAW_SHELL).toBe("acp-client");
   });
 
-  it("strips skill-injected env keys when stripKeys is provided", () => {
-    const openAiApiKeyEnv = envVar("OPENAI", "API", "KEY");
-    const elevenLabsApiKeyEnv = envVar("ELEVENLABS", "API", "KEY");
-    const anthropicApiKeyEnv = envVar("ANTHROPIC", "API", "KEY");
-    const stripKeys = new Set([openAiApiKeyEnv, elevenLabsApiKeyEnv]);
+  it("strips provider auth env vars for the default OpenClaw bridge", () => {
+    const stripKeys = new Set(["OPENAI_API_KEY", "GITHUB_TOKEN", "HF_TOKEN"]);
     const env = resolveAcpClientSpawnEnv(
       {
+        OPENAI_API_KEY: "openai-secret",
+        GITHUB_TOKEN: "gh-secret",
+        HF_TOKEN: "hf-secret",
+        OPENCLAW_API_KEY: "keep-me",
         PATH: "/usr/bin",
-        [openAiApiKeyEnv]: "openai-test-value", // pragma: allowlist secret
-        [elevenLabsApiKeyEnv]: "elevenlabs-test-value", // pragma: allowlist secret
-        [anthropicApiKeyEnv]: "anthropic-test-value", // pragma: allowlist secret
       },
       { stripKeys },
     );
 
+    expect(env.OPENAI_API_KEY).toBeUndefined();
+    expect(env.GITHUB_TOKEN).toBeUndefined();
+    expect(env.HF_TOKEN).toBeUndefined();
+    expect(env.OPENCLAW_API_KEY).toBe("keep-me");
     expect(env.PATH).toBe("/usr/bin");
     expect(env.OPENCLAW_SHELL).toBe("acp-client");
-    expect(env.ANTHROPIC_API_KEY).toBe("anthropic-test-value");
-    expect(env.OPENAI_API_KEY).toBeUndefined();
-    expect(env.ELEVENLABS_API_KEY).toBeUndefined();
   });
 
-  it("does not modify the original baseEnv when stripping keys", () => {
-    const openAiApiKeyEnv = envVar("OPENAI", "API", "KEY");
-    const baseEnv: NodeJS.ProcessEnv = {
-      [openAiApiKeyEnv]: "openai-original", // pragma: allowlist secret
-      PATH: "/usr/bin",
-    };
-    const stripKeys = new Set([openAiApiKeyEnv]);
-    resolveAcpClientSpawnEnv(baseEnv, { stripKeys });
+  it("preserves provider auth env vars for explicit custom ACP servers", () => {
+    const env = resolveAcpClientSpawnEnv({
+      OPENAI_API_KEY: "openai-secret",
+      GITHUB_TOKEN: "gh-secret",
+      HF_TOKEN: "hf-secret",
+      OPENCLAW_API_KEY: "keep-me",
+    });
 
-    expect(baseEnv.OPENAI_API_KEY).toBe("openai-original");
-  });
-
-  it("preserves OPENCLAW_SHELL even when stripKeys contains it", () => {
-    const openAiApiKeyEnv = envVar("OPENAI", "API", "KEY");
-    const env = resolveAcpClientSpawnEnv(
-      {
-        OPENCLAW_SHELL: "skill-overridden",
-        [openAiApiKeyEnv]: "openai-leaked", // pragma: allowlist secret
-      },
-      { stripKeys: new Set(["OPENCLAW_SHELL", openAiApiKeyEnv]) },
-    );
-
+    expect(env.OPENAI_API_KEY).toBe("openai-secret");
+    expect(env.GITHUB_TOKEN).toBe("gh-secret");
+    expect(env.HF_TOKEN).toBe("hf-secret");
+    expect(env.OPENCLAW_API_KEY).toBe("keep-me");
     expect(env.OPENCLAW_SHELL).toBe("acp-client");
-    expect(env.OPENAI_API_KEY).toBeUndefined();
+  });
+});
+
+describe("shouldStripProviderAuthEnvVarsForAcpServer", () => {
+  it("strips provider auth env vars for the default bridge", () => {
+    expect(shouldStripProviderAuthEnvVarsForAcpServer()).toBe(true);
+  });
+
+  it("preserves provider auth env vars for explicit custom ACP servers", () => {
+    expect(shouldStripProviderAuthEnvVarsForAcpServer("custom-acp-server")).toBe(false);
   });
 });
 

@@ -20,6 +20,7 @@ import {
   resolveWindowsSpawnProgram,
 } from "../plugin-sdk/windows-spawn.js";
 import { DANGEROUS_ACP_TOOLS } from "../security/dangerous-tools.js";
+import { listKnownProviderAuthEnvVarNames } from "../secrets/provider-env-vars.js";
 
 const SAFE_AUTO_APPROVE_TOOL_IDS = new Set(["read", "search", "web_search", "memory_search"]);
 const TRUSTED_SAFE_TOOL_ALIASES = new Set(["search"]);
@@ -346,18 +347,23 @@ function buildServerArgs(opts: AcpClientOptions): string[] {
   return args;
 }
 
+export type AcpClientSpawnEnvOptions = {
+  stripKeys?: Iterable<string>;
+};
+
 export function resolveAcpClientSpawnEnv(
   baseEnv: NodeJS.ProcessEnv = process.env,
-  options?: { stripKeys?: ReadonlySet<string> },
+  options: AcpClientSpawnEnvOptions = {},
 ): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { ...baseEnv };
-  if (options?.stripKeys) {
-    for (const key of options.stripKeys) {
-      delete env[key];
-    }
+  const env = { ...baseEnv, OPENCLAW_SHELL: "acp-client" };
+  for (const key of options.stripKeys ?? []) {
+    delete env[key];
   }
-  env.OPENCLAW_SHELL = "acp-client";
   return env;
+}
+
+export function shouldStripProviderAuthEnvVarsForAcpServer(serverCommand?: string): boolean {
+  return !serverCommand;
 }
 
 type AcpSpawnRuntime = {
@@ -458,14 +464,13 @@ export async function createAcpClient(opts: AcpClientOptions = {}): Promise<AcpC
   const entryPath = resolveSelfEntryPath();
   const serverCommand = opts.serverCommand ?? (entryPath ? process.execPath : "openclaw");
   const effectiveArgs = opts.serverCommand || !entryPath ? serverArgs : [entryPath, ...serverArgs];
-  const { getActiveSkillEnvKeys } = await import("../agents/skills/env-overrides.runtime.js");
-  const { listKnownProviderEnvApiKeyNames } = await import("../agents/model-auth-env-vars.js");
-  const stripKeys = new Set(getActiveSkillEnvKeys());
-  // Strip provider API keys so they don't leak to ACP child processes.
-  // Without this, env vars like OPENAI_API_KEY cause Codex CLI to overwrite
-  // its OAuth credentials in ~/.codex/auth.json with apikey mode.
-  for (const key of listKnownProviderEnvApiKeyNames()) {
-    stripKeys.add(key);
+  const stripKeys = new Set<string>();
+  if (shouldStripProviderAuthEnvVarsForAcpServer(opts.serverCommand)) {
+    for (const key of listKnownProviderAuthEnvVarNames()) {
+      if (key !== "OPENCLAW_API_KEY") {
+        stripKeys.add(key);
+      }
+    }
   }
   const spawnEnv = resolveAcpClientSpawnEnv(process.env, { stripKeys });
   const spawnInvocation = resolveAcpClientSpawnInvocation(

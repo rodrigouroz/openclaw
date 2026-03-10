@@ -7,6 +7,7 @@ import type {
 } from "openclaw/plugin-sdk/acpx";
 import {
   applyWindowsSpawnProgramPolicy,
+  listKnownProviderAuthEnvVarNames,
   materializeWindowsSpawnProgram,
   resolveWindowsSpawnProgramCandidate,
 } from "openclaw/plugin-sdk/acpx";
@@ -136,16 +137,12 @@ export function spawnWithResolvedCommand(
     options,
   );
 
-  // Strip provider API keys from child environment to prevent ACP agents
-  // (e.g. Codex CLI) from inheriting credentials they shouldn't use.
-  // Without this, leaked OPENAI_API_KEY causes Codex to overwrite its
-  // OAuth config in ~/.codex/auth.json with apikey mode.
-  const childEnv: Record<string, string | undefined> = {
+  const childEnv: NodeJS.ProcessEnv = {
     ...process.env,
     OPENCLAW_SHELL: "acp",
   };
-  for (const key of Object.keys(childEnv)) {
-    if (key.endsWith("_API_KEY") && key !== "OPENCLAW_API_KEY") {
+  for (const key of listKnownProviderAuthEnvVarNames()) {
+    if (key !== "OPENCLAW_API_KEY") {
       delete childEnv[key];
     }
   }
