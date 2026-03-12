@@ -613,17 +613,32 @@ export abstract class MemoryManagerSyncOps {
     return resolvedFile.startsWith(`${resolvedDir}${path.sep}`);
   }
 
-  private normalizeTargetSessionFile(sessionFile?: string): string | undefined {
-    const trimmed = sessionFile?.trim();
-    if (!trimmed) {
-      return undefined;
+  private normalizeTargetSessionFiles(sessionFiles?: string[]): Set<string> | null {
+    if (!sessionFiles || sessionFiles.length === 0) {
+      return null;
     }
-    const resolved = path.resolve(trimmed);
-    return this.isSessionFileForAgent(resolved) ? resolved : undefined;
+    const normalized = new Set<string>();
+    for (const sessionFile of sessionFiles) {
+      const trimmed = sessionFile.trim();
+      if (!trimmed) {
+        continue;
+      }
+      const resolved = path.resolve(trimmed);
+      if (this.isSessionFileForAgent(resolved)) {
+        normalized.add(resolved);
+      }
+    }
+    return normalized.size > 0 ? normalized : null;
   }
 
-  private clearSyncedSessionFile(targetSessionFile: string) {
-    this.sessionsDirtyFiles.delete(targetSessionFile);
+  private clearSyncedSessionFiles(targetSessionFiles?: Iterable<string> | null) {
+    if (!targetSessionFiles) {
+      this.sessionsDirtyFiles.clear();
+    } else {
+      for (const targetSessionFile of targetSessionFiles) {
+        this.sessionsDirtyFiles.delete(targetSessionFile);
+      }
+    }
     this.sessionsDirty = this.sessionsDirtyFiles.size > 0;
   }
 
@@ -771,7 +786,7 @@ export abstract class MemoryManagerSyncOps {
 
   private async syncSessionFiles(params: {
     needsFullReindex: boolean;
-    targetSessionFile?: string;
+    targetSessionFiles?: string[];
     progress?: MemorySyncProgressState;
   }) {
     // FTS-only mode: skip embedding sync (no provider)
@@ -780,22 +795,22 @@ export abstract class MemoryManagerSyncOps {
       return;
     }
 
-    const targetSessionFile = params.needsFullReindex
-      ? undefined
-      : this.normalizeTargetSessionFile(params.targetSessionFile);
-    const files = targetSessionFile
-      ? [targetSessionFile]
+    const targetSessionFiles = params.needsFullReindex
+      ? null
+      : this.normalizeTargetSessionFiles(params.targetSessionFiles);
+    const files = targetSessionFiles
+      ? Array.from(targetSessionFiles)
       : await listSessionFilesForAgent(this.agentId);
-    const activePaths = targetSessionFile
+    const activePaths = targetSessionFiles
       ? null
       : new Set(files.map((file) => sessionPathForFile(file)));
     const indexAll =
-      params.needsFullReindex || Boolean(targetSessionFile) || this.sessionsDirtyFiles.size === 0;
+      params.needsFullReindex || Boolean(targetSessionFiles) || this.sessionsDirtyFiles.size === 0;
     log.debug("memory sync: indexing session files", {
       files: files.length,
       indexAll,
       dirtyFiles: this.sessionsDirtyFiles.size,
-      targetedFiles: targetSessionFile ? 1 : 0,
+      targetedFiles: targetSessionFiles?.size ?? 0,
       batch: this.batch.enabled,
       concurrency: this.getIndexConcurrency(),
     });
