@@ -671,13 +671,13 @@ export abstract class MemoryManagerSyncOps {
   }
 
   private shouldSyncSessions(
-    params?: { reason?: string; force?: boolean; forceSessions?: boolean },
+    params?: { reason?: string; force?: boolean; sessionFiles?: string[] },
     needsFullReindex = false,
   ) {
     if (!this.sources.has("sessions")) {
       return false;
     }
-    if (params?.forceSessions) {
+    if (params?.sessionFiles?.some((sessionFile) => sessionFile.trim().length > 0)) {
       return true;
     }
     if (params?.force) {

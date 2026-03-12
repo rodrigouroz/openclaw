@@ -662,6 +662,102 @@ describe("memory index", () => {
     }
   });
 
+  it("queues targeted session sync when another sync is already in progress", async () => {
+    const stateDir = path.join(fixtureRoot, `state-targeted-queued-${randomUUID()}`);
+    const sessionDir = path.join(stateDir, "agents", "main", "sessions");
+    const sessionPath = path.join(sessionDir, "targeted-queued.jsonl");
+    const storePath = path.join(workspaceDir, `index-targeted-queued-${randomUUID()}.sqlite`);
+    const previousStateDir = process.env.OPENCLAW_STATE_DIR;
+    process.env.OPENCLAW_STATE_DIR = stateDir;
+
+    await fs.mkdir(sessionDir, { recursive: true });
+    await fs.writeFile(
+      sessionPath,
+      `${JSON.stringify({
+        type: "message",
+        message: { role: "user", content: [{ type: "text", text: "queued transcript v1" }] },
+      })}\n`,
+    );
+
+    try {
+      const manager = requireManager(
+        await getMemorySearchManager({
+          cfg: createCfg({
+            storePath,
+            sources: ["sessions"],
+            sessionMemory: true,
+          }),
+          agentId: "main",
+        }),
+      );
+      await manager.sync({ reason: "test" });
+
+      const db = (
+        manager as unknown as {
+          db: {
+            prepare: (sql: string) => {
+              get: (path: string, source: string) => { hash: string } | undefined;
+            };
+          };
+        }
+      ).db;
+      const getSessionHash = (sessionRelPath: string) =>
+        db
+          .prepare(`SELECT hash FROM files WHERE path = ? AND source = ?`)
+          .get(sessionRelPath, "sessions")?.hash;
+      const originalHash = getSessionHash("sessions/targeted-queued.jsonl");
+
+      const internal = manager as unknown as {
+        runSyncWithReadonlyRecovery: (params?: {
+          reason?: string;
+          sessionFiles?: string[];
+        }) => Promise<void>;
+      };
+      const originalRunSync = internal.runSyncWithReadonlyRecovery.bind(manager);
+      let releaseBusySync: (() => void) | undefined;
+      const busyGate = new Promise<void>((resolve) => {
+        releaseBusySync = resolve;
+      });
+      internal.runSyncWithReadonlyRecovery = async (params) => {
+        if (params?.reason === "busy-sync") {
+          await busyGate;
+        }
+        return await originalRunSync(params);
+      };
+
+      const busySyncPromise = manager.sync({ reason: "busy-sync" });
+      await fs.writeFile(
+        sessionPath,
+        `${JSON.stringify({
+          type: "message",
+          message: {
+            role: "user",
+            content: [{ type: "text", text: "queued transcript v2 after compaction" }],
+          },
+        })}\n`,
+      );
+
+      const targetedSyncPromise = manager.sync({
+        reason: "post-compaction",
+        sessionFiles: [sessionPath],
+      });
+
+      releaseBusySync?.();
+      await Promise.all([busySyncPromise, targetedSyncPromise]);
+
+      expect(getSessionHash("sessions/targeted-queued.jsonl")).not.toBe(originalHash);
+      await manager.close?.();
+    } finally {
+      if (previousStateDir === undefined) {
+        delete process.env.OPENCLAW_STATE_DIR;
+      } else {
+        process.env.OPENCLAW_STATE_DIR = previousStateDir;
+      }
+      await fs.rm(stateDir, { recursive: true, force: true });
+      await fs.rm(storePath, { force: true });
+    }
+  });
+
   it("reindexes when the embedding model changes", async () => {
     const base = createCfg({ storePath: indexModelPath });
     const baseAgents = base.agents!;
