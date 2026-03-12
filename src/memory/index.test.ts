@@ -758,6 +758,94 @@ describe("memory index", () => {
     }
   });
 
+  it("runs a full reindex after fallback activates during targeted sync", async () => {
+    const stateDir = path.join(fixtureRoot, `state-targeted-fallback-${randomUUID()}`);
+    const sessionDir = path.join(stateDir, "agents", "main", "sessions");
+    const sessionPath = path.join(sessionDir, "targeted-fallback.jsonl");
+    const storePath = path.join(workspaceDir, `index-targeted-fallback-${randomUUID()}.sqlite`);
+    const previousStateDir = process.env.OPENCLAW_STATE_DIR;
+    process.env.OPENCLAW_STATE_DIR = stateDir;
+
+    await fs.mkdir(sessionDir, { recursive: true });
+    await fs.writeFile(
+      sessionPath,
+      `${JSON.stringify({
+        type: "message",
+        message: { role: "user", content: [{ type: "text", text: "fallback transcript v1" }] },
+      })}\n`,
+    );
+
+    try {
+      const manager = requireManager(
+        await getMemorySearchManager({
+          cfg: createCfg({
+            storePath,
+            sources: ["sessions"],
+            sessionMemory: true,
+          }),
+          agentId: "main",
+        }),
+      );
+      await manager.sync({ reason: "test" });
+
+      const internal = manager as unknown as {
+        syncSessionFiles: (params: {
+          targetSessionFiles?: string[];
+          needsFullReindex: boolean;
+        }) => Promise<void>;
+        shouldFallbackOnError: (message: string) => boolean;
+        activateFallbackProvider: (reason: string) => Promise<boolean>;
+        runUnsafeReindex: (params: {
+          reason?: string;
+          force?: boolean;
+          progress?: unknown;
+        }) => Promise<void>;
+      };
+      const originalSyncSessionFiles = internal.syncSessionFiles.bind(manager);
+      const originalShouldFallbackOnError = internal.shouldFallbackOnError.bind(manager);
+      const originalActivateFallbackProvider = internal.activateFallbackProvider.bind(manager);
+      const originalRunUnsafeReindex = internal.runUnsafeReindex.bind(manager);
+
+      internal.syncSessionFiles = async (params) => {
+        if (params.targetSessionFiles?.length) {
+          throw new Error("embedding backend failed");
+        }
+        return await originalSyncSessionFiles(params);
+      };
+      internal.shouldFallbackOnError = () => true;
+      const activateFallbackProvider = vi.fn(async () => true);
+      internal.activateFallbackProvider = activateFallbackProvider;
+      const runUnsafeReindex = vi.fn(async () => {});
+      internal.runUnsafeReindex = runUnsafeReindex;
+
+      await manager.sync({
+        reason: "post-compaction",
+        sessionFiles: [sessionPath],
+      });
+
+      expect(activateFallbackProvider).toHaveBeenCalledWith("embedding backend failed");
+      expect(runUnsafeReindex).toHaveBeenCalledWith({
+        reason: "post-compaction",
+        force: true,
+        progress: undefined,
+      });
+
+      internal.syncSessionFiles = originalSyncSessionFiles;
+      internal.shouldFallbackOnError = originalShouldFallbackOnError;
+      internal.activateFallbackProvider = originalActivateFallbackProvider;
+      internal.runUnsafeReindex = originalRunUnsafeReindex;
+      await manager.close?.();
+    } finally {
+      if (previousStateDir === undefined) {
+        delete process.env.OPENCLAW_STATE_DIR;
+      } else {
+        process.env.OPENCLAW_STATE_DIR = previousStateDir;
+      }
+      await fs.rm(stateDir, { recursive: true, force: true });
+      await fs.rm(storePath, { force: true });
+    }
+  });
+
   it("reindexes when the embedding model changes", async () => {
     const base = createCfg({ storePath: indexModelPath });
     const baseAgents = base.agents!;

@@ -967,12 +967,22 @@ export abstract class MemoryManagerSyncOps {
         const activated =
           this.shouldFallbackOnError(reason) && (await this.activateFallbackProvider(reason));
         if (activated) {
-          await this.syncSessionFiles({
-            needsFullReindex: false,
-            targetSessionFiles: Array.from(targetSessionFiles),
-            progress: progress ?? undefined,
-          });
-          this.clearSyncedSessionFiles(targetSessionFiles);
+          if (
+            process.env.OPENCLAW_TEST_FAST === "1" &&
+            process.env.OPENCLAW_TEST_MEMORY_UNSAFE_REINDEX === "1"
+          ) {
+            await this.runUnsafeReindex({
+              reason: params?.reason,
+              force: true,
+              progress: progress ?? undefined,
+            });
+          } else {
+            await this.runSafeReindex({
+              reason: params?.reason,
+              force: true,
+              progress: progress ?? undefined,
+            });
+          }
           return;
         }
         throw err;
