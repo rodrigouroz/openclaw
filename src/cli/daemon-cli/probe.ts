@@ -1,4 +1,7 @@
-import { ensureExplicitGatewayAuth, resolveExplicitGatewayAuth } from "../../gateway/call.js";
+import {
+  ensureExplicitGatewayAuth,
+  resolveExplicitGatewayAuth,
+} from "../../gateway/explicit-auth.js";
 import { probeGateway } from "../../gateway/probe.js";
 import { withProgress } from "../progress.js";
 
