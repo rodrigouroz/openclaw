@@ -6,6 +6,8 @@ export async function probeGatewayStatus(opts: {
   url: string;
   token?: string;
   password?: string;
+  explicitToken?: string;
+  explicitPassword?: string;
   tlsFingerprint?: string;
   timeoutMs: number;
   json?: boolean;
@@ -19,8 +21,8 @@ export async function probeGatewayStatus(opts: {
         urlOverride: opts.url,
         urlOverrideSource: "cli",
         explicitAuth: resolveExplicitGatewayAuth({
-          token: opts.token,
-          password: opts.password,
+          token: opts.explicitToken,
+          password: opts.explicitPassword,
         }),
         resolvedAuth: {
           token: opts.token,

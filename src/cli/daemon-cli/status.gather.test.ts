@@ -190,6 +190,7 @@ describe("gatherDaemonStatus", () => {
         url: "wss://127.0.0.1:19001",
         tlsFingerprint: "sha256:11:22:33:44",
         token: "daemon-token",
+        explicitToken: undefined,
       }),
     );
     expect(status.gateway?.probeUrl).toBe("wss://127.0.0.1:19001");
@@ -209,6 +210,7 @@ describe("gatherDaemonStatus", () => {
       expect.objectContaining({
         url: "wss://override.example:18790",
         token: "override-token",
+        explicitToken: "override-token",
         tlsFingerprint: undefined,
         requireExplicitAuth: true,
       }),
@@ -235,6 +237,7 @@ describe("gatherDaemonStatus", () => {
       expect.objectContaining({
         url: "wss://override.example:18790",
         token: "daemon-token",
+        explicitToken: undefined,
         requireExplicitAuth: true,
       }),
     );

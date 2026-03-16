@@ -343,6 +343,8 @@ export async function gatherDaemonStatus(
         url: gateway.probeUrl,
         token: daemonProbeAuth?.token,
         password: daemonProbeAuth?.password,
+        explicitToken: opts.rpc.token,
+        explicitPassword: opts.rpc.password,
         tlsFingerprint:
           shouldUseLocalTlsRuntime && tlsRuntime?.enabled
             ? tlsRuntime.fingerprintSha256
