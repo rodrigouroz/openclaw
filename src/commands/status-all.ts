@@ -35,6 +35,7 @@ import { buildChannelsTable } from "./status-all/channels.js";
 import { formatDurationPrecise, formatGatewayAuthUsed } from "./status-all/format.js";
 import { pickGatewaySelfPresence } from "./status-all/gateway.js";
 import { buildStatusAllReportLines } from "./status-all/report-lines.js";
+import { STATUS_TAILSCALE_TIMEOUT_MS } from "./status.scan.shared.js";
 import { readServiceStatusSummary } from "./status.service-summary.js";
 import { formatUpdateOneLiner } from "./status.update.js";
 
@@ -64,7 +65,7 @@ export async function statusAllCommand(
           readTailscaleStatusJson(runExec, {
             timeoutMs: 1200,
           }),
-          1500, // keep in sync with STATUS_TAILSCALE_TIMEOUT_MS in status.scan.ts
+          STATUS_TAILSCALE_TIMEOUT_MS,
         );
         const backendState = typeof parsed.BackendState === "string" ? parsed.BackendState : null;
         const self =
