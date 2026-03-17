@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto";
-import net from "node:net";
 import { formatErrorMessage } from "../infra/errors.js";
 import type { SystemPresence } from "../infra/system-presence.js";
 import { GATEWAY_CLIENT_MODES, GATEWAY_CLIENT_NAMES } from "../utils/message-channel.js";
 import { GatewayClient } from "./client.js";
 import { READ_SCOPE } from "./method-scopes.js";
+import { isLoopbackHost } from "./net.js";
 
 export type GatewayProbeAuth = {
   token?: string;
@@ -29,20 +29,6 @@ export type GatewayProbeResult = {
   configSnapshot: unknown;
 };
 
-function isLoopbackProbeHost(host: string): boolean {
-  const normalized = host.trim().toLowerCase();
-  if (!normalized) {
-    return false;
-  }
-  if (normalized === "localhost" || normalized === "::1") {
-    return true;
-  }
-  if (normalized.startsWith("127.")) {
-    return true;
-  }
-  return net.isIP(normalized) === 6 && normalized.startsWith("::ffff:127.");
-}
-
 export async function probeGateway(opts: {
   url: string;
   auth?: GatewayProbeAuth;
@@ -64,7 +50,7 @@ export async function probeGateway(opts: {
       // Local authenticated probes should stay device-bound so read/detail RPCs
       // are not scope-limited by the shared-auth scope stripping hardening.
       return (
-        isLoopbackProbeHost(hostname) &&
+        isLoopbackHost(hostname) &&
         !(opts.auth?.token || opts.auth?.password) &&
         opts.allowLoopbackDeviceIdentity !== true
       );

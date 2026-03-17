@@ -2,6 +2,7 @@ import {
   ensureExplicitGatewayAuth,
   resolveExplicitGatewayAuth,
 } from "../../gateway/explicit-auth.js";
+import { isSecureWebSocketUrl } from "../../gateway/net.js";
 import { probeGateway } from "../../gateway/probe.js";
 import { withProgress } from "../progress.js";
 
@@ -34,6 +35,28 @@ export async function probeGatewayStatus(opts: {
         errorHint: "Fix: pass --token or --password (or gatewayToken in tools).",
         configPath: opts.configPath,
       });
+    }
+    const allowPrivateWs = process.env.OPENCLAW_ALLOW_INSECURE_PRIVATE_WS === "1";
+    if (!isSecureWebSocketUrl(opts.url, { allowPrivateWs })) {
+      throw new Error(
+        [
+          `SECURITY ERROR: Gateway URL "${opts.url}" uses plaintext ws:// to a non-loopback address.`,
+          "Both credentials and chat data would be exposed to network interception.",
+          "Source: cli --url",
+          opts.configPath ? `Config: ${opts.configPath}` : undefined,
+          "Fix: Use wss:// for remote gateway URLs.",
+          "Safe remote access defaults:",
+          "- keep gateway.bind=loopback and use an SSH tunnel (ssh -N -L 18789:127.0.0.1:18789 user@gateway-host)",
+          "- or use Tailscale Serve/Funnel for HTTPS remote access",
+          allowPrivateWs
+            ? undefined
+            : "Break-glass (trusted private networks only): set OPENCLAW_ALLOW_INSECURE_PRIVATE_WS=1",
+          "Doctor: openclaw doctor --fix",
+          "Docs: https://docs.openclaw.ai/gateway/remote",
+        ]
+          .filter(Boolean)
+          .join("\n"),
+      );
     }
     await withProgress(
       {

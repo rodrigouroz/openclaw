@@ -80,6 +80,16 @@ describe("probeGateway", () => {
     expect(gatewayClientState.options?.deviceIdentity).toBeNull();
   });
 
+  it("treats bracketed IPv6 loopback probes as local", async () => {
+    await probeGateway({
+      url: "ws://[::1]:18789",
+      timeoutMs: 1_000,
+      includeDetails: false,
+    });
+
+    expect(gatewayClientState.options?.deviceIdentity).toBeNull();
+  });
+
   it("skips detail RPCs for lightweight reachability probes", async () => {
     const result = await probeGateway({
       url: "ws://127.0.0.1:18789",

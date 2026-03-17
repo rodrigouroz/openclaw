@@ -61,4 +61,20 @@ describe("probeGatewayStatus", () => {
       }),
     );
   });
+
+  it("rejects insecure remote ws overrides before dialing the probe", async () => {
+    const result = await probeGatewayStatus({
+      url: "ws://override.example:18790",
+      token: "override-token",
+      explicitToken: "override-token",
+      timeoutMs: 1_000,
+      configPath: "/tmp/openclaw.json",
+      requireExplicitAuth: true,
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("SECURITY ERROR");
+    expect(result.error).toContain("Source: cli --url");
+    expect(probeGateway).not.toHaveBeenCalled();
+  });
 });
