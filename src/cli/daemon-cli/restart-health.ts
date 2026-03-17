@@ -72,6 +72,9 @@ function clampRestartProbeTimeoutMs(timeoutMs?: number): number | null {
 }
 
 function createRestartHealthDeadline(attempts: number, delayMs: number): number | null {
+  // The deadline bounds the retry loop's overall wall-clock budget.
+  // The initial probe runs before the first sleep, so shorter attempt windows may
+  // result in fewer probe iterations than the raw attempts count suggests.
   const totalBudgetMs = attempts * delayMs;
   return totalBudgetMs > 0 ? Date.now() + totalBudgetMs : null;
 }

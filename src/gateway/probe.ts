@@ -47,8 +47,10 @@ export async function probeGateway(opts: {
   const disableDeviceIdentity = (() => {
     try {
       const hostname = new URL(opts.url).hostname;
-      // Local authenticated probes should stay device-bound so read/detail RPCs
-      // are not scope-limited by the shared-auth scope stripping hardening.
+      // Unauthenticated local probes disable device identity to avoid silently
+      // inflating the probe's privilege via device-token fallback.
+      // `allowLoopbackDeviceIdentity: true` opts trusted daemon loopback callers
+      // back into the device identity path when that is the intended auth mechanism.
       return (
         isLoopbackHost(hostname) &&
         !(opts.auth?.token || opts.auth?.password) &&
